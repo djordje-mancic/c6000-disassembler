@@ -5,6 +5,7 @@ use crate::instruction::{
     branching::BranchInstruction,
     fphead::CompactInstructionHeader,
     invalid::InvalidInstruction,
+    memory::MemoryInstruction,
     moving::{MoveConstantInstruction, MoveRegisterInstruction},
     nop::NOPInstruction,
 };
@@ -41,6 +42,10 @@ pub fn read_instruction(input: InstructionInput) -> Result<Box<dyn C64xInstructi
     }
 
     if let Ok(instruction) = MoveRegisterInstruction::new(&input) {
+        return Ok(Box::new(instruction));
+    }
+
+    if let Ok(instruction) = MemoryInstruction::new(&input) {
         return Ok(Box::new(instruction));
     }
 

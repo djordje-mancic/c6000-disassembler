@@ -7,6 +7,7 @@ use std::io::{Error, ErrorKind, Result};
 pub mod branching;
 pub mod fphead;
 pub mod invalid;
+pub mod memory;
 pub mod moving;
 pub mod nop;
 pub mod parser;
@@ -172,7 +173,7 @@ impl Unit {
 
 impl Display for Unit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-         match self {
+        match self {
             Self::L => write!(f, "L"),
             Self::S => write!(f, "S"),
             Self::M => write!(f, "M"),
