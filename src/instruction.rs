@@ -1,6 +1,7 @@
 use crate::instruction::fphead::CompactInstructionHeader;
 use crate::instruction::register::Register;
 use std::any::Any;
+use std::fmt::Display;
 use std::io::{Error, ErrorKind, Result};
 
 pub mod branching;
@@ -134,17 +135,17 @@ impl DataSize {
     }
 }
 
-impl ToString for DataSize {
-    fn to_string(&self) -> String {
+impl Display for DataSize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Byte => String::from("Byte"),
-            Self::ByteUnsigned => String::from("ByteUnsigned"),
-            Self::HalfWord => String::from("HalfWord"),
-            Self::HalfWordUnsigned => String::from("HalfWordUnsigned"),
-            Self::Word => String::from("Word"),
-            Self::NonAlignedWord => String::from("NonAlignedWord"),
-            Self::DoubleWord => String::from("DoubleWord"),
-            Self::NonAlignedDoubleWord => String::from("NonAlignedDoubleWord"),
+            Self::Byte => write!(f, "Byte"),
+            Self::ByteUnsigned => write!(f, "ByteUnsigned"),
+            Self::HalfWord => write!(f, "HalfWord"),
+            Self::HalfWordUnsigned => write!(f, "HalfWordUnsigned"),
+            Self::Word => write!(f, "Word"),
+            Self::NonAlignedWord => write!(f, "NonAlignedWord"),
+            Self::DoubleWord => write!(f, "DoubleWord"),
+            Self::NonAlignedDoubleWord => write!(f, "NonAlignedDoubleWord"),
         }
     }
 }
@@ -169,13 +170,13 @@ impl Unit {
     }
 }
 
-impl ToString for Unit {
-    fn to_string(&self) -> String {
-        match self {
-            Self::L => String::from("L"),
-            Self::S => String::from("S"),
-            Self::M => String::from("M"),
-            Self::D => String::from("D"),
+impl Display for Unit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+         match self {
+            Self::L => write!(f, "L"),
+            Self::S => write!(f, "S"),
+            Self::M => write!(f, "M"),
+            Self::D => write!(f, "D"),
         }
     }
 }
@@ -225,12 +226,12 @@ impl ConditionalOperation {
     }
 }
 
-impl ToString for ConditionalOperation {
-    fn to_string(&self) -> String {
+impl Display for ConditionalOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConditionalOperation::NonZero(register) => register.to_string(),
-            ConditionalOperation::Zero(register) => format!("!{}", register.to_string()),
-            ConditionalOperation::ReservedLow | ConditionalOperation::ReservedHigh => String::new(),
+            ConditionalOperation::NonZero(register) => write!(f, "{register}"),
+            ConditionalOperation::Zero(register) => write!(f, "!{register}"),
+            ConditionalOperation::ReservedLow | ConditionalOperation::ReservedHigh => write!(f, ""),
         }
     }
 }

@@ -1,4 +1,4 @@
-use std::ops::{AddAssign, Not};
+use std::{fmt::Display, ops::{AddAssign, Not}};
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum Register {
@@ -37,13 +37,13 @@ impl Register {
     }
 }
 
-impl ToString for Register {
-    fn to_string(&self) -> String {
+impl Display for Register {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::A(num) => String::from("A") + num.to_string().as_str(),
-            Self::APair(num1, num2) => format!("A{num1}:A{num2}"),
-            Self::B(num) => String::from("B") + num.to_string().as_str(),
-            Self::BPair(num1, num2) => format!("B{num1}:B{num2}"),
+            Self::A(num) => write!(f, "A{num}"),
+            Self::APair(num1, num2) => write!(f, "A{num1}:A{num2}"),
+            Self::B(num) => write!(f, "B{num}"),
+            Self::BPair(num1, num2) => write!(f, "B{num1}:B{num2}"),
         }
     }
 }
@@ -167,36 +167,36 @@ impl ControlRegister {
     }
 }
 
-impl ToString for ControlRegister {
-    fn to_string(&self) -> String {
+impl Display for ControlRegister {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::AMR => String::from("AMR"),
-            Self::CSR => String::from("CSR"),
-            Self::GFPGFR => String::from("GFPGFR"),
-            Self::ICR => String::from("ICR"),
-            Self::IER => String::from("IER"),
-            Self::IFR => String::from("IFR"),
-            Self::IRP => String::from("IRP"),
-            Self::ISR => String::from("ISR"),
-            Self::ISTP => String::from("ISTP"),
-            Self::NRP => String::from("NRP"),
-            Self::PCE1 => String::from("PCE1"),
-            Self::DIER => String::from("DIER"),
-            Self::DNUM => String::from("DNUM"),
-            Self::ECR => String::from("ECR"),
-            Self::EFR => String::from("EFR"),
-            Self::GPLYA => String::from("GPLYA"),
-            Self::GPLYB => String::from("GPLYB"),
-            Self::IERR => String::from("IERR"),
-            Self::ILC => String::from("ILC"),
-            Self::ITSR => String::from("ITSR"),
-            Self::NTSR => String::from("NTSR"),
-            Self::REP => String::from("REP"),
-            Self::RILC => String::from("RILC"),
-            Self::SSR => String::from("SSR"),
-            Self::TSCH => String::from("TSCH"),
-            Self::TSCL => String::from("TSCL"),
-            Self::TSR => String::from("TSR"),
+            Self::AMR => write!(f, "AMR"),
+            Self::CSR => write!(f, "CSR"),
+            Self::GFPGFR => write!(f, "GFPGFR"),
+            Self::ICR => write!(f, "ICR"),
+            Self::IER => write!(f, "IER"),
+            Self::IFR => write!(f, "IFR"),
+            Self::IRP => write!(f, "IRP"),
+            Self::ISR => write!(f, "ISR"),
+            Self::ISTP => write!(f, "ISTP"),
+            Self::NRP => write!(f, "NRP"),
+            Self::PCE1 => write!(f, "PCE1"),
+            Self::DIER => write!(f, "DIER"),
+            Self::DNUM => write!(f, "DNUM"),
+            Self::ECR => write!(f, "ECR"),
+            Self::EFR => write!(f, "EFR"),
+            Self::GPLYA => write!(f, "GPLYA"),
+            Self::GPLYB => write!(f, "GPLYB"),
+            Self::IERR => write!(f, "IERR"),
+            Self::ILC => write!(f, "ILC"),
+            Self::ITSR => write!(f, "ITSR"),
+            Self::NTSR => write!(f, "NTSR"),
+            Self::REP => write!(f, "REP"),
+            Self::RILC => write!(f, "RILC"),
+            Self::SSR => write!(f, "SSR"),
+            Self::TSCH => write!(f, "TSCH"),
+            Self::TSCL => write!(f, "TSCL"),
+            Self::TSR => write!(f, "TSR"),
         }
     }
 }
@@ -216,11 +216,11 @@ impl RegisterFile {
     }
 }
 
-impl ToString for RegisterFile {
-    fn to_string(&self) -> String {
+impl Display for RegisterFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::GeneralPurpose(register) => register.to_string(),
-            Self::Control(register) => register.to_string(),
+            Self::GeneralPurpose(register) => write!(f, "{register}"),
+            Self::Control(register) => write!(f, "{register}"),
         }
     }
 }
