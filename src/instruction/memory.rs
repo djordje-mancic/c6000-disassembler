@@ -87,49 +87,90 @@ pub struct MemoryInstruction {
 
 impl C64xInstruction for MemoryInstruction {
     fn new(input: &super::InstructionInput) -> Result<Self> {
-        let format = [
-            ParsingInstruction::Bit {
-                name: String::from("p"),
-            },
-            ParsingInstruction::Bit {
-                name: String::from("s"),
-            },
-            ParsingInstruction::Match { size: 2, value: 1 },
-            ParsingInstruction::Unsigned {
-                size: 3,
-                name: String::from("op"),
-            },
-            ParsingInstruction::Bit {
-                name: String::from("y"),
-            },
-            ParsingInstruction::Bit {
-                name: String::from("op2"),
-            },
-            ParsingInstruction::Unsigned {
-                size: 4,
-                name: String::from("mode"),
-            },
-            ParsingInstruction::Unsigned {
-                size: 5,
-                name: String::from("offset"),
-            },
-            ParsingInstruction::Unsigned {
-                size: 5,
-                name: String::from("baseR"),
-            },
-            ParsingInstruction::Register {
-                size: 5,
-                name: String::from("register"),
-            },
-            ParsingInstruction::ConditionalOperation {
-                name: String::from("creg"),
-            },
+        let formats = [
+            vec![
+                ParsingInstruction::Bit {
+                    name: String::from("p"),
+                },
+                ParsingInstruction::Bit {
+                    name: String::from("s"),
+                },
+                ParsingInstruction::Match { size: 2, value: 1 },
+                ParsingInstruction::Unsigned {
+                    size: 3,
+                    name: String::from("op"),
+                },
+                ParsingInstruction::Bit {
+                    name: String::from("y"),
+                },
+                ParsingInstruction::Bit {
+                    name: String::from("op2"),
+                },
+                ParsingInstruction::Unsigned {
+                    size: 4,
+                    name: String::from("mode"),
+                },
+                ParsingInstruction::Unsigned {
+                    size: 5,
+                    name: String::from("offset"),
+                },
+                ParsingInstruction::Unsigned {
+                    size: 5,
+                    name: String::from("baseR"),
+                },
+                ParsingInstruction::Register {
+                    size: 5,
+                    name: String::from("register"),
+                },
+                ParsingInstruction::ConditionalOperation {
+                    name: String::from("creg"),
+                },
+            ],
+            vec![
+                ParsingInstruction::Bit {
+                    name: String::from("p"),
+                },
+                ParsingInstruction::Bit {
+                    name: String::from("s"),
+                },
+                ParsingInstruction::Match {
+                    size: 2,
+                    value: 0b11,
+                },
+                ParsingInstruction::Unsigned {
+                    size: 3,
+                    name: String::from("op"),
+                },
+                ParsingInstruction::Bit {
+                    name: String::from("y"),
+                },
+                ParsingInstruction::Unsigned {
+                    size: 15,
+                    name: String::from("cst"),
+                },
+                ParsingInstruction::Register {
+                    size: 5,
+                    name: String::from("register"),
+                },
+                ParsingInstruction::ConditionalOperation {
+                    name: String::from("creg"),
+                },
+            ],
         ];
 
-        if let Ok(parsed_variables) = parse(input.opcode, &format) {
+        for format in formats {
+            let Ok(parsed_variables) = parse(input.opcode, &format) else {
+                continue;
+            };
             let p_bit = ParsedVariable::try_get(&parsed_variables, "p")?.get_bool()?;
 
-            let op2 = ParsedVariable::try_get(&parsed_variables, "op2")?.get_bool()?;
+            let op2 = {
+                if let Ok(var) = ParsedVariable::try_get(&parsed_variables, "op2") {
+                    var.get_bool()?
+                } else {
+                    false
+                }
+            };
             let (instruction_type, data_size) =
                 match ParsedVariable::try_get(&parsed_variables, "op")?.get_u8()? {
                     0b111 if !op2 => (MemoryInstructionType::Store, DataSize::Word),
@@ -155,31 +196,51 @@ impl C64xInstruction for MemoryInstruction {
                 };
 
             let side = ParsedVariable::try_get(&parsed_variables, "y")?.get_bool()?;
-            let offset = ParsedVariable::try_get(&parsed_variables, "offset")?.get_u8()?;
-            let mode = match ParsedVariable::try_get(&parsed_variables, "mode")?.get_u8()? {
-                0b0000 => AddressGeneratorMode::Negative(offset as u32),
-                0b0001 => AddressGeneratorMode::Positive(offset as u32),
-                0b1000 => AddressGeneratorMode::Predecrement(offset as u32),
-                0b1001 => AddressGeneratorMode::Preincrement(offset as u32),
-                0b1010 => AddressGeneratorMode::Postdecrement(offset as u32),
-                0b1011 => AddressGeneratorMode::Postincrement(offset as u32),
-                0b0100 => AddressGeneratorMode::NegativeR(Register::from(offset, side)),
-                0b0101 => AddressGeneratorMode::PositiveR(Register::from(offset, side)),
-                0b1100 => AddressGeneratorMode::PredecrementR(Register::from(offset, side)),
-                0b1101 => AddressGeneratorMode::PreincrementR(Register::from(offset, side)),
-                0b1110 => AddressGeneratorMode::PostdecrementR(Register::from(offset, side)),
-                0b1111 => AddressGeneratorMode::PostincrementR(Register::from(offset, side)),
-                _ => {
-                    return Err(Error::new(
-                        ErrorKind::InvalidInput,
-                        "Invalid memory instruction mode",
-                    ));
+            let mode = {
+                if let Ok(var) = ParsedVariable::try_get(&parsed_variables, "mode") {
+                    let offset = ParsedVariable::try_get(&parsed_variables, "offset")?.get_u8()?;
+                    let res = match var.get_u8()? {
+                        0b0000 => AddressGeneratorMode::Negative(offset as u32),
+                        0b0001 => AddressGeneratorMode::Positive(offset as u32),
+                        0b1000 => AddressGeneratorMode::Predecrement(offset as u32),
+                        0b1001 => AddressGeneratorMode::Preincrement(offset as u32),
+                        0b1010 => AddressGeneratorMode::Postdecrement(offset as u32),
+                        0b1011 => AddressGeneratorMode::Postincrement(offset as u32),
+                        0b0100 => AddressGeneratorMode::NegativeR(Register::from(offset, side)),
+                        0b0101 => AddressGeneratorMode::PositiveR(Register::from(offset, side)),
+                        0b1100 => AddressGeneratorMode::PredecrementR(Register::from(offset, side)),
+                        0b1101 => AddressGeneratorMode::PreincrementR(Register::from(offset, side)),
+                        0b1110 => {
+                            AddressGeneratorMode::PostdecrementR(Register::from(offset, side))
+                        }
+                        0b1111 => {
+                            AddressGeneratorMode::PostincrementR(Register::from(offset, side))
+                        }
+                        _ => {
+                            return Err(Error::new(
+                                ErrorKind::InvalidInput,
+                                "Invalid memory instruction mode",
+                            ));
+                        }
+                    };
+                    res
+                } else {
+                    let cst = ParsedVariable::try_get(&parsed_variables, "cst")?.get_u32()?;
+                    AddressGeneratorMode::Positive(cst)
                 }
             };
-            let base_register = Register::from(
-                ParsedVariable::try_get(&parsed_variables, "baseR")?.get_u8()?,
-                side,
-            );
+
+            let base_register = {
+                if let Ok(var) = ParsedVariable::try_get(&parsed_variables, "baseR") {
+                    Register::from(var.get_u8()?, side)
+                } else {
+                    if side {
+                        Register::B(15)
+                    } else {
+                        Register::B(14)
+                    }
+                }
+            };
             let register =
                 ParsedVariable::try_get(&parsed_variables, "register")?.get_register()?;
 
