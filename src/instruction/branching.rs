@@ -1,6 +1,6 @@
 use std::{
     cmp::min,
-    io::{Error, ErrorKind},
+    io::{self, Error, ErrorKind},
 };
 
 use crate::instruction::{
@@ -21,6 +21,28 @@ pub struct BranchInstruction {
     pub side: bool,
     pce1_address: u32,
     pub nop_count: u8,
+}
+
+impl BranchInstruction {
+    pub fn calculate_displacement_address(&self) -> io::Result<u32> {
+        match self.branch_using {
+            BranchUsing::Displacement(displacement) => {
+                let displacement_abs = displacement.unsigned_abs();
+                if self.pce1_address == 0 {
+                    return Err(Error::other("PCE1 = 0"))
+                };
+                let branch_address = {
+                    if displacement.is_positive() {
+                        self.pce1_address + displacement_abs
+                    } else {
+                        self.pce1_address - displacement_abs
+                    }
+                }; 
+                return Ok(branch_address);
+            }
+            _ => return Err(Error::other("Not displacement"))
+        }
+    }
 }
 
 impl C64xInstruction for BranchInstruction {
@@ -429,19 +451,12 @@ impl C64xInstruction for BranchInstruction {
         let operands = match self.branch_using {
             BranchUsing::Displacement(displacement) => {
                 let displacement_abs = displacement.unsigned_abs();
-                if self.pce1_address == 0 {
-                    return String::from("ERROR - PCE1 ADDRESS = 0");
-                };
-                let branch_address = {
-                    if displacement.is_positive() {
-                        self.pce1_address + displacement_abs
-                    } else {
-                        self.pce1_address - displacement_abs
-                    }
+                let address_result = self.calculate_displacement_address();
+                let Ok(branch_address) = self.calculate_displacement_address() else {
+                    return address_result.map_err(|e| format!("ERROR {e}")).unwrap_err();
                 };
                 format!(
-                    "0x{:08X} (PCE1{}0x{displacement_abs:08X})",
-                    branch_address,
+                    "0x{branch_address:08X} (PCE1{}0x{displacement_abs:08X})",
                     if displacement.is_positive() { "+" } else { "-" }
                 )
             }
