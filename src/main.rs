@@ -1,6 +1,6 @@
 use std::{
     fs::{File, OpenOptions},
-    io::{BufReader, BufWriter, ErrorKind, Read, Write, stdin, stdout},
+    io::{BufReader, BufWriter, ErrorKind, Read, Seek, SeekFrom, Write, stdin, stdout},
     path::PathBuf,
     process::exit,
 };
@@ -123,40 +123,34 @@ fn main() {
     let mut address = args.offset;
     loop {
         let mut buf = [0u8; PACKET_SIZE];
-        let do_read_packet = if address % PACKET_SIZE as u32 == 0 {
-            true
-        } else {
-            false
-        };
-
-        if let Err(e) = reader.read_exact(if do_read_packet {
-            &mut buf
-        } else {
-            &mut buf[0..INSTRUCTION_SIZE]
-        }) {
+        let reader_pos = reader
+            .stream_position()
+            .expect("Reading stream position of reader");
+        if let Err(e) = reader.read_exact(&mut buf) {
             if e.kind() != ErrorKind::UnexpectedEof {
                 eprintln!("Error reading from file: {e}");
                 exit(-1);
             }
             break;
         }
-
-        if do_read_packet {
-            if let Ok(packet_instructions) = read_packet(buf, address) {
-                for instruction in packet_instructions {
-                    print_instruction(instruction, &mut address, output);
-                }
-            } else {
-                address += PACKET_SIZE as u32;
-                continue;
+        if let Ok(packet_instructions) = read_packet(buf, address) {
+            for instruction in packet_instructions {
+                print_instruction(instruction, &mut address, output);
             }
         } else {
+            reader
+                .seek(SeekFrom::Start(reader_pos + INSTRUCTION_SIZE as u64))
+                .expect("Reader seek to");
             let opcode_bytes = buf
                 .first_chunk::<INSTRUCTION_SIZE>()
-                .expect("Buf error")
+                .expect("Getting first chunk of buffer")
                 .clone();
             let opcode = u32::from_le_bytes(opcode_bytes);
-            if let Ok(instruction) = read_instruction(InstructionInput::new(opcode)) {
+            if let Ok(instruction) = read_instruction(InstructionInput {
+                opcode,
+                fphead: None,
+                pce1_address: address - address % (8 * INSTRUCTION_SIZE as u32),
+            }) {
                 print_instruction(instruction, &mut address, output);
             } else {
                 address += INSTRUCTION_SIZE as u32;

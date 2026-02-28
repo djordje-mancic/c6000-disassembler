@@ -45,15 +45,11 @@ pub fn read_instruction(input: InstructionInput) -> Result<Box<dyn C64xInstructi
         return Ok(Box::new(instruction));
     }
 
-    if let Ok(instruction) = MemoryInstruction::new(&input) {
-        return Ok(Box::new(instruction));
-    }
-
     if let Ok(instruction) = BranchInstruction::new(&input) {
         return Ok(Box::new(instruction));
     }
 
-    if let Ok(instruction) = CompactInstructionHeader::new(&input) {
+    if let Ok(instruction) = MemoryInstruction::new(&input) {
         return Ok(Box::new(instruction));
     }
 
@@ -76,26 +72,31 @@ pub fn read_packet(
     address: u32,
 ) -> Result<Vec<Box<dyn C64xInstruction>>> {
     let mut vec: Vec<Box<dyn C64xInstruction>> = vec![];
-    let last_instruction = read_instruction(InstructionInput::new(u32::from_le_bytes([
-        packet[PACKET_SIZE - 4],
-        packet[PACKET_SIZE - 3],
-        packet[PACKET_SIZE - 2],
-        packet[PACKET_SIZE - 1],
-    ])))?;
-    let fphead_option = last_instruction
-        .as_any()
-        .downcast_ref::<CompactInstructionHeader>();
+    let Ok(fphead) = CompactInstructionHeader::new(&InstructionInput {
+        opcode: u32::from_le_bytes([
+            packet[PACKET_SIZE - 4],
+            packet[PACKET_SIZE - 3],
+            packet[PACKET_SIZE - 2],
+            packet[PACKET_SIZE - 1],
+        ]),
+        fphead: None,
+        pce1_address: address,
+    }) else {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "Not a fetch packet, use read_instruction instead.",
+        ));
+    };
 
     let mut index = 0;
     let mut previous_p_bit = false;
     while index < 7 * 4 {
         let instruction = {
-            if let Some(fphead) = fphead_option
-                && fphead.layout[index / 4]
-            {
+            if fphead.layout[index / 4] {
                 let mut compact_instruction = read_compact_instruction(InstructionInput {
                     opcode: u16::from_le_bytes([packet[index], packet[index + 1]]) as u32,
-                    fphead: fphead_option.cloned(),
+                    fphead: Some(fphead.clone()),
+                    pce1_address: address,
                 })?;
                 compact_instruction.set_parallel(previous_p_bit);
                 previous_p_bit = fphead.compact_p_bits[index / 2];
@@ -108,7 +109,8 @@ pub fn read_packet(
                         packet[index + 2],
                         packet[index + 3],
                     ]),
-                    fphead: fphead_option.cloned(),
+                    fphead: Some(fphead.clone()),
+                    pce1_address: address,
                 })?;
                 instruction.set_parallel(previous_p_bit);
                 previous_p_bit = instruction.get_p_bit();
@@ -131,15 +133,7 @@ pub fn read_packet(
         vec.push(instruction);
     }
 
-    vec.push(last_instruction);
-
-    for instruction in &mut vec {
-        if let Some(branch_instruction) =
-            instruction.as_any_mut().downcast_mut::<BranchInstruction>()
-        {
-            branch_instruction.set_pce1_address(address);
-        }
-    }
+    vec.push(Box::new(fphead));
 
     Ok(vec)
 }

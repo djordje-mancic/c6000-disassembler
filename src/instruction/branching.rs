@@ -19,14 +19,8 @@ pub struct BranchInstruction {
     instruction_data: InstructionData,
     pub branch_using: BranchUsing,
     pub side: bool,
-    pce1_address: Option<u32>,
+    pce1_address: u32,
     pub nop_count: u8,
-}
-
-impl BranchInstruction {
-    pub fn set_pce1_address(&mut self, address: u32) {
-        self.pce1_address = Some(address);
-    }
 }
 
 impl C64xInstruction for BranchInstruction {
@@ -187,7 +181,7 @@ impl C64xInstruction for BranchInstruction {
             return Ok(Self {
                 side,
                 branch_using,
-                pce1_address: None,
+                pce1_address: input.pce1_address,
                 nop_count,
                 instruction_data: InstructionData {
                     opcode: input.opcode,
@@ -395,7 +389,7 @@ impl C64xInstruction for BranchInstruction {
                 },
                 branch_using,
                 side,
-                pce1_address: None,
+                pce1_address: input.pce1_address,
                 nop_count,
             });
         }
@@ -435,14 +429,14 @@ impl C64xInstruction for BranchInstruction {
         let operands = match self.branch_using {
             BranchUsing::Displacement(displacement) => {
                 let displacement_abs = displacement.unsigned_abs();
-                let Some(address) = self.pce1_address else {
-                    return String::from("ERROR - PCE1 ADDRESS EMPTY");
+                if self.pce1_address == 0 {
+                    return String::from("ERROR - PCE1 ADDRESS = 0");
                 };
                 let branch_address = {
                     if displacement.is_positive() {
-                        address + displacement_abs
+                        self.pce1_address + displacement_abs
                     } else {
-                        address - displacement_abs
+                        self.pce1_address - displacement_abs
                     }
                 };
                 format!(

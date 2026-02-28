@@ -76,15 +76,7 @@ pub trait C64xInstruction: AsAny {
 pub struct InstructionInput {
     pub opcode: u32,
     pub fphead: Option<CompactInstructionHeader>,
-}
-
-impl InstructionInput {
-    pub fn new(opcode: u32) -> Self {
-        Self {
-            opcode,
-            fphead: None,
-        }
-    }
+    pub pce1_address: u32,
 }
 
 #[derive(Clone)]
