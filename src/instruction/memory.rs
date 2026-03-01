@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::instruction::{
-    C64xInstruction, DataSize, InstructionData,
+    C6000Instruction, DataSize, InstructionData,
     parser::{ParsedVariable, ParsingInstruction, parse},
     register::Register,
 };
@@ -85,7 +85,7 @@ pub struct MemoryInstruction {
     register: Register,
 }
 
-impl C64xInstruction for MemoryInstruction {
+impl C6000Instruction for MemoryInstruction {
     fn new(input: &super::InstructionInput) -> Result<Self> {
         let formats = [
             vec![

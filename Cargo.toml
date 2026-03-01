@@ -1,10 +1,10 @@
 [package]
-name = "c64x-disassembler"
-description = "Disassembler for TMS320C64x/C64x+ Digital Signal Processors"
-repository = "https://github.com/djordje-mancic/c64x-disassembler"
+name = "c6000-disassembler"
+description = "Disassembler for the TMS320C6000 series of Digital Signal Processors"
+repository = "https://github.com/djordje-mancic/c6000-disassembler"
 license = "MIT"
 readme = "README.md"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]

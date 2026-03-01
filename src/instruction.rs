@@ -28,7 +28,7 @@ impl<T: Any> AsAny for T {
     }
 }
 
-pub trait C64xInstruction: AsAny {
+pub trait C6000Instruction: AsAny {
     fn new(_input: &InstructionInput) -> Result<Self>
     where
         Self: Sized,

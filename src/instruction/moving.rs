@@ -1,5 +1,5 @@
 use crate::instruction::{
-    C64xInstruction, ConditionalOperation, InstructionData, Unit,
+    C6000Instruction, ConditionalOperation, InstructionData, Unit,
     parser::{ParsedVariable, ParsingInstruction, parse},
     register::{ControlRegister, Register, RegisterFile},
 };
@@ -12,7 +12,7 @@ pub struct MoveConstantInstruction {
     instruction_data: InstructionData,
 }
 
-impl C64xInstruction for MoveConstantInstruction {
+impl C6000Instruction for MoveConstantInstruction {
     fn new(input: &super::InstructionInput) -> std::io::Result<Self> {
         let format_combinations = [
             (
@@ -749,7 +749,7 @@ impl MoveRegisterInstruction {
     }
 }
 
-impl C64xInstruction for MoveRegisterInstruction {
+impl C6000Instruction for MoveRegisterInstruction {
     fn new(input: &super::InstructionInput) -> std::io::Result<Self> {
         if let Ok(ret_val) = Self::new_mv(input.opcode) {
             return Ok(ret_val);

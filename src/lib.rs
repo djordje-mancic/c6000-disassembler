@@ -1,7 +1,7 @@
 use std::io::{Error, ErrorKind, Result};
 
 use crate::instruction::{
-    C64xInstruction, InstructionInput,
+    C6000Instruction, InstructionInput,
     branching::BranchInstruction,
     fphead::CompactInstructionHeader,
     invalid::InvalidInstruction,
@@ -13,8 +13,8 @@ use crate::instruction::{
 pub mod instruction;
 
 /// Reads a compact 16-bit instruction and returns a result containing a
-/// struct with the [C64xInstruction] trait.
-pub fn read_compact_instruction(input: InstructionInput) -> Result<Box<dyn C64xInstruction>> {
+/// struct with the [C6000Instruction] trait.
+pub fn read_compact_instruction(input: InstructionInput) -> Result<Box<dyn C6000Instruction>> {
     if let Ok(instruction) = MoveConstantInstruction::new_compact(&input) {
         return Ok(Box::new(instruction));
     }
@@ -35,8 +35,8 @@ pub fn read_compact_instruction(input: InstructionInput) -> Result<Box<dyn C64xI
 }
 
 /// Reads a 32-bit instruction and returns a result containing a
-/// struct with the [C64xInstruction] trait.
-pub fn read_instruction(input: InstructionInput) -> Result<Box<dyn C64xInstruction>> {
+/// struct with the [C6000Instruction] trait.
+pub fn read_instruction(input: InstructionInput) -> Result<Box<dyn C6000Instruction>> {
     if let Ok(instruction) = MoveConstantInstruction::new(&input) {
         return Ok(Box::new(instruction));
     }
@@ -70,8 +70,8 @@ pub const PACKET_SIZE: usize = 8 * INSTRUCTION_SIZE;
 pub fn read_packet(
     packet: [u8; PACKET_SIZE],
     address: u32,
-) -> Result<Vec<Box<dyn C64xInstruction>>> {
-    let mut vec: Vec<Box<dyn C64xInstruction>> = vec![];
+) -> Result<Vec<Box<dyn C6000Instruction>>> {
+    let mut vec: Vec<Box<dyn C6000Instruction>> = vec![];
     let Ok(fphead) = CompactInstructionHeader::new(&InstructionInput {
         opcode: u32::from_le_bytes([
             packet[PACKET_SIZE - 4],

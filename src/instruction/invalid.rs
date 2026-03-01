@@ -1,10 +1,10 @@
-use crate::instruction::{C64xInstruction, InstructionData};
+use crate::instruction::{C6000Instruction, InstructionData};
 
 pub struct InvalidInstruction {
     instruction_data: InstructionData,
 }
 
-impl C64xInstruction for InvalidInstruction {
+impl C6000Instruction for InvalidInstruction {
     fn new(input: &super::InstructionInput) -> std::io::Result<Self> {
         Ok(InvalidInstruction {
             instruction_data: InstructionData {

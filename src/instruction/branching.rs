@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::instruction::{
-    C64xInstruction, ConditionalOperation, InstructionData,
+    C6000Instruction, ConditionalOperation, InstructionData,
     parser::{ParsedVariable, ParsingInstruction, parse},
     register::{ControlRegister, Register},
 };
@@ -29,7 +29,7 @@ impl BranchInstruction {
             BranchUsing::Displacement(displacement) => {
                 let displacement_abs = displacement.unsigned_abs();
                 if self.pce1_address == 0 {
-                    return Err(Error::other("PCE1 = 0"))
+                    return Err(Error::other("PCE1 = 0"));
                 };
                 let branch_address = {
                     if displacement.is_positive() {
@@ -37,15 +37,15 @@ impl BranchInstruction {
                     } else {
                         self.pce1_address - displacement_abs
                     }
-                }; 
+                };
                 return Ok(branch_address);
             }
-            _ => return Err(Error::other("Not displacement"))
+            _ => return Err(Error::other("Not displacement")),
         }
     }
 }
 
-impl C64xInstruction for BranchInstruction {
+impl C6000Instruction for BranchInstruction {
     fn new(input: &super::InstructionInput) -> std::io::Result<Self> {
         let formats = [
             vec![
@@ -453,7 +453,9 @@ impl C64xInstruction for BranchInstruction {
                 let displacement_abs = displacement.unsigned_abs();
                 let address_result = self.calculate_displacement_address();
                 let Ok(branch_address) = self.calculate_displacement_address() else {
-                    return address_result.map_err(|e| format!("ERROR {e}")).unwrap_err();
+                    return address_result
+                        .map_err(|e| format!("ERROR {e}"))
+                        .unwrap_err();
                 };
                 format!(
                     "0x{branch_address:08X} (PCE1{}0x{displacement_abs:08X})",

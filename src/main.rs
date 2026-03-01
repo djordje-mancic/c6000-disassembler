@@ -7,9 +7,9 @@ use std::{
 
 use clap::Parser;
 
-use c64x_disassembler::{
+use c6000_disassembler::{
     COMPACT_INSTRUCTION_SIZE, INSTRUCTION_SIZE, PACKET_SIZE,
-    instruction::{C64xInstruction, ConditionalOperation, InstructionInput},
+    instruction::{C6000Instruction, ConditionalOperation, InstructionInput},
     read_instruction, read_packet,
 };
 
@@ -63,7 +63,7 @@ fn handle_output_file(args: &Args) -> Option<BufWriter<File>> {
 }
 
 fn print_instruction(
-    instruction: Box<dyn C64xInstruction>,
+    instruction: Box<dyn C6000Instruction>,
     address: &mut u32,
     output: &mut dyn Write,
 ) {

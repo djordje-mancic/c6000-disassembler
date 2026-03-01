@@ -1,5 +1,5 @@
 use crate::instruction::{
-    C64xInstruction, InstructionData,
+    C6000Instruction, InstructionData,
     parser::{ParsedVariable, ParsingInstruction, parse},
 };
 use std::io::{Error, ErrorKind, Result};
@@ -9,7 +9,7 @@ pub struct NOPInstruction {
     instruction_data: InstructionData,
 }
 
-impl C64xInstruction for NOPInstruction {
+impl C6000Instruction for NOPInstruction {
     fn new(input: &super::InstructionInput) -> Result<Self> {
         let format = [
             ParsingInstruction::Bit {

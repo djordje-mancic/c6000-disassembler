@@ -1,7 +1,7 @@
 use std::io::{Error, ErrorKind, Result};
 
 use crate::instruction::{
-    C64xInstruction, DataSize, InstructionData,
+    C6000Instruction, DataSize, InstructionData,
     parser::{ParsedVariable, ParsingInstruction, parse},
 };
 
@@ -35,7 +35,7 @@ pub struct CompactInstructionHeader {
     pub compact_p_bits: [bool; 14],
 }
 
-impl C64xInstruction for CompactInstructionHeader {
+impl C6000Instruction for CompactInstructionHeader {
     fn new(input: &super::InstructionInput) -> Result<Self> {
         let format = [
             ParsingInstruction::BitArray {
