@@ -95,9 +95,13 @@ impl C6000Instruction for BranchInstruction {
                 ParsingInstruction::Bit {
                     name: String::from("p"),
                 },
+                ParsingInstruction::BitMatch {
+                    name: String::from("s"),
+                    value: true,
+                },
                 ParsingInstruction::Match {
-                    size: 17,
-                    value: 0x71,
+                    size: 16,
+                    value: 0b111000,
                 },
                 ParsingInstruction::Unsigned {
                     size: 3,
@@ -366,24 +370,27 @@ impl C6000Instruction for BranchInstruction {
             let side = ParsedVariable::try_get(&parsed_variables, "s")?.get_bool()?;
             let branch_using = {
                 if name == "sx1b" {
-                    let num = ParsedVariable::try_get(&parsed_variables, "src")?.get_u8()?;
-                    BranchUsing::Register(Register::B(num))
+                    let Ok(src) = ParsedVariable::try_get(&parsed_variables, "src") else {
+                        continue;
+                    };
+                    BranchUsing::Register(Register::B(src.get_u8()?))
                 } else {
+                    let Ok(cst) = ParsedVariable::try_get(&parsed_variables, "cst") else {
+                        continue;
+                    };
                     BranchUsing::Displacement(if name == "sbu8" || name == "sbu8c" {
-                        (ParsedVariable::try_get(&parsed_variables, "cst")?.get_u8()? as i32) << 1
+                        (cst.get_u8()? as i32) << 1
                     } else {
-                        ParsedVariable::try_get(&parsed_variables, "cst")?.get_i32()? << {
-                            if name == "scs10" { 2 } else { 1 }
-                        }
+                        cst.get_i32()? << { if name == "scs10" { 2 } else { 1 } }
                     })
                 }
             };
             let nop_count = {
                 if name == "sbs7" || name == "sbs7c" || name == "sx1b" {
-                    min(
-                        ParsedVariable::try_get(&parsed_variables, "nop")?.get_u8()?,
-                        5,
-                    )
+                    let Ok(nop) = ParsedVariable::try_get(&parsed_variables, "nop") else {
+                        continue;
+                    };
+                    min(nop.get_u8()?, 5)
                 } else {
                     5
                 }
