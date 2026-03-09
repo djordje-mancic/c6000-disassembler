@@ -225,10 +225,6 @@ impl C6000Instruction for BranchInstruction {
     }
 
     fn new_compact(input: &super::InstructionInput) -> std::io::Result<Self> {
-        let Some(fphead) = &input.fphead else {
-            return Err(Error::new(ErrorKind::InvalidInput, "No fphead"));
-        };
-
         let formats = [
             (
                 "sbs7",
