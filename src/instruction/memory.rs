@@ -266,6 +266,442 @@ impl C6000Instruction for MemoryInstruction {
         ))
     }
 
+    fn new_compact(input: &super::InstructionInput) -> Result<Self> {
+        let Some(fphead) = &input.fphead else {
+            return Err(Error::new(ErrorKind::InvalidInput, "No fphead"));
+        };
+
+        let formats = [
+            (
+                "Doff4",
+                vec![
+                    ParsingInstruction::Bit {
+                        name: String::from("s"),
+                    },
+                    ParsingInstruction::Match {
+                        size: 2,
+                        value: 0b10,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("load"),
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("register"),
+                        size: 3,
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("ptr"),
+                        size: 2,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("sz"),
+                    },
+                    ParsingInstruction::Match { size: 1, value: 0 },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("cst3"),
+                        size: 1,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("t"),
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("cst20"),
+                        size: 3,
+                    },
+                ],
+            ),
+            (
+                "Doff4DW",
+                vec![
+                    ParsingInstruction::Bit {
+                        name: String::from("s"),
+                    },
+                    ParsingInstruction::Match {
+                        size: 2,
+                        value: 0b10,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("load"),
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("na"),
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("register"),
+                        size: 2,
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("ptr"),
+                        size: 2,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("sz"),
+                    },
+                    ParsingInstruction::Match { size: 1, value: 0 },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("cst3"),
+                        size: 1,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("t"),
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("cst20"),
+                        size: 3,
+                    },
+                ],
+            ),
+            (
+                "Dind",
+                vec![
+                    ParsingInstruction::Bit {
+                        name: String::from("s"),
+                    },
+                    ParsingInstruction::Match {
+                        size: 2,
+                        value: 0b10,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("load"),
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("register"),
+                        size: 3,
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("ptr"),
+                        size: 2,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("sz"),
+                    },
+                    ParsingInstruction::Match { size: 2, value: 1 },
+                    ParsingInstruction::Bit {
+                        name: String::from("t"),
+                    },
+                    ParsingInstruction::Register {
+                        name: String::from("src"),
+                        size: 3,
+                    },
+                ],
+            ),
+            (
+                "DindDW",
+                vec![
+                    ParsingInstruction::Bit {
+                        name: String::from("s"),
+                    },
+                    ParsingInstruction::Match {
+                        size: 2,
+                        value: 0b10,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("load"),
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("na"),
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("register"),
+                        size: 2,
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("ptr"),
+                        size: 2,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("sz"),
+                    },
+                    ParsingInstruction::Match { size: 2, value: 1 },
+                    ParsingInstruction::Bit {
+                        name: String::from("t"),
+                    },
+                    ParsingInstruction::Register {
+                        name: String::from("src"),
+                        size: 3,
+                    },
+                ],
+            ),
+            (
+                "Dincdec",
+                vec![
+                    ParsingInstruction::Bit {
+                        name: String::from("s"),
+                    },
+                    ParsingInstruction::Match {
+                        size: 2,
+                        value: 0b10,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("load"),
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("register"),
+                        size: 3,
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("ptr"),
+                        size: 2,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("sz"),
+                    },
+                    ParsingInstruction::Match {
+                        size: 2,
+                        value: 0b11,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("t"),
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("cst0"),
+                        size: 1,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("dec"),
+                    },
+                    ParsingInstruction::Match { size: 1, value: 0 },
+                ],
+            ),
+            (
+                "DincdecDW",
+                vec![
+                    ParsingInstruction::Bit {
+                        name: String::from("s"),
+                    },
+                    ParsingInstruction::Match {
+                        size: 2,
+                        value: 0b10,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("load"),
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("na"),
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("register"),
+                        size: 2,
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("ptr"),
+                        size: 2,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("sz"),
+                    },
+                    ParsingInstruction::Match {
+                        size: 2,
+                        value: 0b11,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("t"),
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("cst0"),
+                        size: 1,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("dec"),
+                    },
+                    ParsingInstruction::Match { size: 1, value: 0 },
+                ],
+            ),
+            (
+                "Dstk",
+                vec![
+                    ParsingInstruction::BitMatch {
+                        name: String::from("s"),
+                        value: true,
+                    },
+                    ParsingInstruction::Match {
+                        size: 2,
+                        value: 0b10,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("load"),
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("register"),
+                        size: 3,
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("cst42"),
+                        size: 3,
+                    },
+                    ParsingInstruction::Match {
+                        size: 2,
+                        value: 0b11,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("t"),
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("cst10"),
+                        size: 2,
+                    },
+                    ParsingInstruction::Match { size: 1, value: 1 },
+                ],
+            ),
+            (
+                "Dpp",
+                vec![
+                    ParsingInstruction::BitMatch {
+                        name: String::from("s"),
+                        value: true,
+                    },
+                    ParsingInstruction::Match {
+                        size: 6,
+                        value: 0b111011,
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("register"),
+                        size: 4,
+                    },
+                    ParsingInstruction::Match { size: 1, value: 0 },
+                    ParsingInstruction::Bit {
+                        name: String::from("t"),
+                    },
+                    ParsingInstruction::Unsigned {
+                        name: String::from("cst0"),
+                        size: 1,
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("load"),
+                    },
+                    ParsingInstruction::Bit {
+                        name: String::from("dw"),
+                    },
+                ],
+            ),
+        ];
+        for (name, format) in formats {
+            let Ok(parsed_variables) = parse(input.opcode, format.as_slice()) else {
+                continue;
+            };
+            let side = ParsedVariable::try_get(&parsed_variables, "s")?.get_bool()?;
+            let t = ParsedVariable::try_get(&parsed_variables, "t")?.get_bool()?;
+
+            let instruction_type = {
+                if ParsedVariable::try_get(&parsed_variables, "load")?.get_bool()? {
+                    MemoryInstructionType::Load
+                } else {
+                    MemoryInstructionType::Store
+                }
+            };
+
+            let base_register = {
+                if name == "Dstk" || name == "Dpp" {
+                    Register::B(15)
+                } else {
+                    let ptr = ParsedVariable::try_get(&parsed_variables, "ptr")?.get_u8()?;
+                    Register::from(ptr + 4, side)
+                }
+            };
+
+            let mode = {
+                if name.starts_with("Doff4") {
+                    let cst20 = ParsedVariable::try_get(&parsed_variables, "cst20")?.get_u8()?;
+                    let cst3 = ParsedVariable::try_get(&parsed_variables, "cst3")?.get_u8()?;
+                    let cst = cst20 + (cst3 << 3);
+                    AddressGeneratorMode::Positive(cst as u32)
+                } else if name.starts_with("Dind") {
+                    let src = ParsedVariable::try_get(&parsed_variables, "src")?.get_register()?;
+                    AddressGeneratorMode::PositiveR(src)
+                } else if name.starts_with("Dincdec") {
+                    let cst = ParsedVariable::try_get(&parsed_variables, "cst0")?.get_u8()? + 1;
+                    let dec = ParsedVariable::try_get(&parsed_variables, "dec")?.get_bool()?;
+                    if dec {
+                        AddressGeneratorMode::Predecrement(cst as u32)
+                    } else {
+                        AddressGeneratorMode::Postincrement(cst as u32)
+                    }
+                } else if name == "Dstk" {
+                    let cst10 = ParsedVariable::try_get(&parsed_variables, "cst10")?.get_u8()?;
+                    let cst42 = ParsedVariable::try_get(&parsed_variables, "cst42")?.get_u8()?;
+                    let cst = cst10 + (cst42 << 2);
+                    AddressGeneratorMode::Positive(cst as u32)
+                } else if name == "Dpp" {
+                    let cst = ParsedVariable::try_get(&parsed_variables, "cst0")?.get_u8()? + 1;
+                    if instruction_type == MemoryInstructionType::Load {
+                        AddressGeneratorMode::Preincrement(cst as u32)
+                    } else {
+                        AddressGeneratorMode::Postdecrement(cst as u32)
+                    }
+                } else {
+                    AddressGeneratorMode::Positive(0)
+                }
+            };
+
+            let data_size = {
+                if name == "Dstk" {
+                    DataSize::Word
+                } else if name == "Dpp" {
+                    let dw = ParsedVariable::try_get(&parsed_variables, "dw")?.get_bool()?;
+                    if dw {
+                        DataSize::DoubleWord
+                    } else {
+                        DataSize::Word
+                    }
+                } else {
+                    let sz = ParsedVariable::try_get(&parsed_variables, "sz")?.get_bool()?;
+                    if sz {
+                        if name.ends_with("DW") {
+                            continue;
+                        }
+                        fphead.secondary_data_size
+                    } else {
+                        if name.ends_with("DW") {
+                            if fphead.primary_data_size != DataSize::DoubleWord {
+                                continue;
+                            }
+                            let na =
+                                ParsedVariable::try_get(&parsed_variables, "na")?.get_bool()?;
+                            if na {
+                                DataSize::NonAlignedDoubleWord
+                            } else {
+                                DataSize::DoubleWord
+                            }
+                        } else {
+                            if fphead.primary_data_size != DataSize::Word {
+                                continue;
+                            }
+                            DataSize::Word
+                        }
+                    }
+                }
+            };
+
+            let register = {
+                let reg_value = ParsedVariable::try_get(&parsed_variables, "register")?.get_u8()?;
+                if data_size == DataSize::DoubleWord || data_size == DataSize::NonAlignedDoubleWord
+                {
+                    Register::from_pair(reg_value, t)
+                } else {
+                    Register::from(reg_value, t)
+                }
+            };
+
+            return Ok(Self {
+                instruction_data: InstructionData {
+                    opcode: input.opcode,
+                    compact: true,
+                    ..Default::default()
+                },
+                instruction_type,
+                data_size,
+                base_register,
+                mode,
+                side,
+                register,
+            });
+        }
+        Err(Error::new(
+            ErrorKind::InvalidInput,
+            "Not a memory load/store instruction",
+        ))
+    }
+
     fn instruction_clean(&self) -> String {
         let prefix = if self.instruction_type == MemoryInstructionType::Load {
             String::from("LD")

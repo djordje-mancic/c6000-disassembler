@@ -27,6 +27,10 @@ pub fn read_compact_instruction(input: InstructionInput) -> Result<Box<dyn C6000
         return Ok(Box::new(instruction));
     }
 
+    if let Ok(instruction) = MemoryInstruction::new_compact(&input) {
+        return Ok(Box::new(instruction));
+    }
+
     if let Ok(instruction) = NOPInstruction::new_compact(&input) {
         return Ok(Box::new(instruction));
     }
