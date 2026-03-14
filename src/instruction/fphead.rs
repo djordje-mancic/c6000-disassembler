@@ -145,41 +145,27 @@ impl C6000Instruction for CompactInstructionHeader {
         String::from(".fphead")
     }
     fn operands(&self) -> String {
-        let mut return_str = String::new();
-        if self.loads_protected {
-            return_str += "p";
-        } else {
-            return_str += "n";
-        }
-        return_str += ", ";
-        if self.register_set {
-            return_str += "h";
-        } else {
-            return_str += "l";
-        }
-        return_str += ", ";
-        return_str += (self.primary_data_size.to_short_string() + ", ").as_str();
-        return_str += (self.secondary_data_size.to_short_string() + ", ").as_str();
-        if self.decode_compact_branches {
-            return_str += "br";
-        } else {
-            return_str += "nobr";
-        }
-        return_str += ", ";
-        if self.saturate {
-            return_str += "sat";
-        } else {
-            return_str += "nosat";
-        }
-        return_str += ", ";
+        let mut layout_str = String::new();
         for i in (0..7).rev() {
             if self.layout[i] {
-                return_str += "1";
+                layout_str += "1";
             } else {
-                return_str += "0";
+                layout_str += "0";
             }
         }
-        return_str
+        format!(
+            "{}, {}, {}, {}, {}, {}, {layout_str}",
+            if self.loads_protected { "p" } else { "n" },
+            if self.register_set { "h" } else { "l" },
+            self.primary_data_size.to_short_string(),
+            self.secondary_data_size.to_short_string(),
+            if self.decode_compact_branches {
+                "br"
+            } else {
+                "nobr"
+            },
+            if self.saturate { "sat" } else { "nosat" }
+        )
     }
     fn instruction_data(&self) -> &InstructionData {
         &self.instruction_data
