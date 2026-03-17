@@ -38,6 +38,14 @@ impl Register {
             Self::BPair(_, _) => true,
         }
     }
+
+    pub fn to_side(&self, side: bool) -> Self {
+        if self.side() == side {
+            *self
+        } else {
+            !*self
+        }
+    }
 }
 
 impl Display for Register {
