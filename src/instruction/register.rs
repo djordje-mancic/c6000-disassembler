@@ -30,17 +30,30 @@ impl Register {
         }
     }
 
+    /// Returns the register number (i.e. 8 for `A(8)`).
+    /// Register pairs return the number of the first register.
+    pub fn number(&self) -> u8 {
+        match self {
+            Self::A(value) | Self::APair(value, ..) | Self::B(value) | Self::BPair(value, ..) => {
+                *value
+            }
+        }
+    }
+
+    /// Returns `false` if the register is in the A file, and `true` if it is in the B file.
     pub fn side(&self) -> bool {
         match self {
-            Self::A(_) => false,
-            Self::APair(_, _) => false,
-            Self::B(_) => true,
-            Self::BPair(_, _) => true,
+            Self::A(..) | Self::APair(..) => false,
+            Self::B(..) | Self::BPair(..) => true,
         }
     }
 
     pub fn to_side(&self, side: bool) -> Self {
         if self.side() == side { *self } else { !*self }
+    }
+
+    pub fn to_pair(&self) -> Self {
+        Self::from_pair(self.number(), self.side())
     }
 }
 
