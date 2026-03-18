@@ -301,9 +301,15 @@ impl C6000Instruction for MoveRegisterInstruction {
                         )
                     }
                 } else {
+                    let mut src_register = Register::from(src2, side ^ crosspath);
+                    let mut dst_register = Register::from(dst, side);
+                    if format == &l_unit::ONE_OR_TWO_SOURCES_FORMAT && op == 0b0100000 {
+                        src_register = src_register.to_pair();
+                        dst_register = dst_register.to_pair();
+                    }
                     (
-                        RegisterFile::GeneralPurpose(Register::from(src2, side ^ crosspath)),
-                        RegisterFile::GeneralPurpose(Register::from(dst, side)),
+                        RegisterFile::GeneralPurpose(src_register),
+                        RegisterFile::GeneralPurpose(dst_register),
                     )
                 }
             };
