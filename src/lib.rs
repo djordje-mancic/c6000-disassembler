@@ -76,7 +76,7 @@ pub fn read_packet(
     address: u32,
 ) -> Result<Vec<Box<dyn C6000Instruction>>> {
     let mut vec: Vec<Box<dyn C6000Instruction>> = vec![];
-    let Ok(fphead) = CompactInstructionHeader::new(&InstructionInput {
+    let fphead = match CompactInstructionHeader::new(&InstructionInput {
         opcode: u32::from_le_bytes([
             packet[PACKET_SIZE - 4],
             packet[PACKET_SIZE - 3],
@@ -85,11 +85,14 @@ pub fn read_packet(
         ]),
         fphead: None,
         pce1_address: address,
-    }) else {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "Not a fetch packet, use read_instruction instead.",
-        ));
+    }) {
+        Ok(res) => res,
+        Err(e) => {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                format!("Not a fetch packet, use read_instruction instead. {e}"),
+            ));
+        }
     };
 
     let mut index = 0;

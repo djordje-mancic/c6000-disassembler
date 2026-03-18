@@ -1,6 +1,10 @@
 use crate::instruction::{
     C6000Instruction, InstructionData,
-    parser::{ParsedVariable, ParsingInstruction, parse},
+    formats::{
+        FormatSymbol,
+        no_unit::{IDLE_NOP_FORMAT, UNOP_FORMAT},
+    },
+    parser::parse,
 };
 use std::io::{Error, ErrorKind, Result};
 
@@ -11,21 +15,10 @@ pub struct NOPInstruction {
 
 impl C6000Instruction for NOPInstruction {
     fn new(input: &super::InstructionInput) -> Result<Self> {
-        let format = [
-            ParsingInstruction::Bit {
-                name: String::from("p"),
-            },
-            ParsingInstruction::Match { size: 12, value: 0 },
-            ParsingInstruction::Unsigned {
-                size: 4,
-                name: String::from("src"),
-            },
-            ParsingInstruction::Match { size: 15, value: 0 },
-        ];
-        let parsed_variables = parse(input.opcode, &format)
+        let parsed_variables = parse(input.opcode, &IDLE_NOP_FORMAT)
             .map_err(|e| Error::new(ErrorKind::InvalidInput, format!("Not a NOP/IDLE: {e}")))?;
-        let p_bit = ParsedVariable::try_get(&parsed_variables, "p")?.get_bool()?;
-        let count = ParsedVariable::try_get(&parsed_variables, "src")?.get_u8()?;
+        let p_bit = parsed_variables.try_get_bool(FormatSymbol::Parallel)?;
+        let count = parsed_variables.try_get_u8(FormatSymbol::Opfield)?;
         Ok(NOPInstruction {
             count,
             instruction_data: InstructionData {
@@ -37,19 +30,9 @@ impl C6000Instruction for NOPInstruction {
     }
 
     fn new_compact(input: &super::InstructionInput) -> Result<Self> {
-        let format = [
-            ParsingInstruction::Match {
-                size: 13,
-                value: 0xC6E,
-            },
-            ParsingInstruction::Unsigned {
-                size: 3,
-                name: String::from("N3"),
-            },
-        ];
-        let parsed_variables = parse(input.opcode, &format)
+        let parsed_variables = parse(input.opcode, &UNOP_FORMAT)
             .map_err(|e| Error::new(ErrorKind::InvalidInput, format!("Not a NOP/IDLE: {e}")))?;
-        let count = ParsedVariable::try_get(&parsed_variables, "N3")?.get_u8()?;
+        let count = parsed_variables.try_get_u8(FormatSymbol::N3)?;
         Ok(NOPInstruction {
             count,
             instruction_data: InstructionData {

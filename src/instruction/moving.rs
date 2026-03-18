@@ -1,6 +1,13 @@
 use crate::instruction::{
     C6000Instruction, ConditionalOperation, InstructionData, Unit,
-    parser::{ParsedVariable, ParsingInstruction, parse},
+    formats::{
+        FormatSymbol, d_unit,
+        l_unit::{self, LX5_FORMAT},
+        lsd::{LSDMVFR_FORMAT, LSDMVTO_FORMAT, LSDX1_FORMAT, LSDX1C_FORMAT},
+        m_unit,
+        s_unit::{self, MOVE_CONSTANT_FORMAT, SMVK8_FORMAT, SX1_FORMAT},
+    },
+    parser::{ParsingInstruction, parse},
     register::{ControlRegister, Register, RegisterFile},
 };
 
@@ -14,113 +21,59 @@ pub struct MoveConstantInstruction {
 
 impl C6000Instruction for MoveConstantInstruction {
     fn new(input: &super::InstructionInput) -> std::io::Result<Self> {
-        let format_combinations = [
-            (
-                Unit::S,
-                vec![
-                    ParsingInstruction::Bit {
-                        name: String::from("p"),
-                    },
-                    ParsingInstruction::Bit {
-                        name: String::from("s"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 4,
-                        value: 0b01010,
-                    },
-                    ParsingInstruction::Bit {
-                        name: String::from("h"),
-                    },
-                    ParsingInstruction::Unsigned {
-                        size: 16,
-                        name: String::from("cst"),
-                    },
-                    ParsingInstruction::Register {
-                        size: 5,
-                        name: String::from("dst"),
-                    },
-                    ParsingInstruction::ConditionalOperation {
-                        name: String::from("cond"),
-                    },
-                ],
-            ),
-            (
-                Unit::L,
-                vec![
-                    ParsingInstruction::Bit {
-                        name: String::from("p"),
-                    },
-                    ParsingInstruction::Bit {
-                        name: String::from("s"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 10,
-                        value: 0b0011010110,
-                    },
-                    ParsingInstruction::Bit {
-                        name: String::from("x"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 5,
-                        value: 0b00101,
-                    },
-                    ParsingInstruction::Unsigned {
-                        size: 5,
-                        name: String::from("cst"),
-                    },
-                    ParsingInstruction::Register {
-                        size: 5,
-                        name: String::from("dst"),
-                    },
-                    ParsingInstruction::ConditionalOperation {
-                        name: String::from("cond"),
-                    },
-                ],
-            ),
-            (
-                Unit::D,
-                vec![
-                    ParsingInstruction::Bit {
-                        name: String::from("p"),
-                    },
-                    ParsingInstruction::Bit {
-                        name: String::from("s"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 11,
-                        value: 0b00000010000,
-                    },
-                    ParsingInstruction::Unsigned {
-                        size: 5,
-                        name: String::from("cst"),
-                    },
-                    ParsingInstruction::Match { size: 5, value: 0 },
-                    ParsingInstruction::Register {
-                        size: 5,
-                        name: String::from("dst"),
-                    },
-                    ParsingInstruction::ConditionalOperation {
-                        name: String::from("cond"),
-                    },
-                ],
-            ),
+        let formats: [&[ParsingInstruction]; 3] = [
+            &MOVE_CONSTANT_FORMAT,
+            &l_unit::ONE_OR_TWO_SOURCES_FORMAT,
+            &d_unit::ONE_OR_TWO_SOURCES_FORMAT,
         ];
-        for (unit, format) in format_combinations {
-            let Ok(parsed_variables) = parse(input.opcode, format.as_slice()) else {
+        for format in formats {
+            let Ok(parsed_variables) = parse(input.opcode, format) else {
                 continue;
             };
-            let p_bit = ParsedVariable::try_get(&parsed_variables, "p")?.get_bool()?;
-            let constant = ParsedVariable::try_get(&parsed_variables, "cst")?.get_u32()?;
-            let destination = ParsedVariable::try_get(&parsed_variables, "dst")?.get_register()?;
+            if format == &l_unit::ONE_OR_TWO_SOURCES_FORMAT {
+                if parsed_variables.try_get_u8(FormatSymbol::Opfield)? != 0b0011010
+                    || parsed_variables.try_get_u8(FormatSymbol::Source1)? != 0b00101
+                {
+                    continue;
+                }
+            } else if format == &d_unit::ONE_OR_TWO_SOURCES_FORMAT {
+                if parsed_variables.try_get_u8(FormatSymbol::Opfield)? != 0
+                    || parsed_variables.try_get_u8(FormatSymbol::Source2)? != 0
+                {
+                    continue;
+                }
+            }
+            let p_bit = parsed_variables.try_get_bool(FormatSymbol::Parallel)?;
+            let side = parsed_variables.try_get_bool(FormatSymbol::Side)?;
+            let constant = {
+                if format == &l_unit::ONE_OR_TWO_SOURCES_FORMAT {
+                    parsed_variables.try_get_u32(FormatSymbol::Source2)?
+                } else if format == &d_unit::ONE_OR_TWO_SOURCES_FORMAT {
+                    parsed_variables.try_get_u32(FormatSymbol::Source1)?
+                } else {
+                    parsed_variables.try_get_u32(FormatSymbol::Constant(16))?
+                }
+            };
+            let destination = parsed_variables
+                .try_get_register(FormatSymbol::Destination)?
+                .to_side(side);
             let high = {
-                if unit == Unit::S {
-                    ParsedVariable::try_get(&parsed_variables, "h")?.get_bool()?
+                if format == &MOVE_CONSTANT_FORMAT {
+                    parsed_variables.try_get_bool(FormatSymbol::MoveHigh)?
                 } else {
                     false
                 }
             };
-            let conditional_operation =
-                ParsedVariable::try_get(&parsed_variables, "cond")?.get_conditional_operation()?;
+            let conditional_operation = parsed_variables.try_get_conditional_operation()?;
+            let unit = {
+                if format == &l_unit::ONE_OR_TWO_SOURCES_FORMAT {
+                    Unit::L
+                } else if format == &d_unit::ONE_OR_TWO_SOURCES_FORMAT {
+                    Unit::D
+                } else {
+                    Unit::S
+                }
+            };
             return Ok(Self {
                 high,
                 constant,
@@ -141,171 +94,54 @@ impl C6000Instruction for MoveConstantInstruction {
     }
 
     fn new_compact(input: &super::InstructionInput) -> std::io::Result<Self> {
-        let format_combinations = [
-            (
-                Unit::S,
-                vec![
-                    ParsingInstruction::Bit {
-                        name: String::from("s"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 4,
-                        value: 0b1001,
-                    },
-                    ParsingInstruction::Unsigned {
-                        size: 2,
-                        name: String::from("cst65"),
-                    },
-                    ParsingInstruction::Register {
-                        size: 3,
-                        name: String::from("dst"),
-                    },
-                    ParsingInstruction::Unsigned {
-                        size: 1,
-                        name: String::from("cst7"),
-                    },
-                    ParsingInstruction::Unsigned {
-                        size: 2,
-                        name: String::from("cst43"),
-                    },
-                    ParsingInstruction::Unsigned {
-                        size: 3,
-                        name: String::from("cst20"),
-                    },
-                ],
-            ),
-            (
-                Unit::L,
-                vec![
-                    ParsingInstruction::Bit {
-                        name: String::from("s"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 6,
-                        value: 0b010011,
-                    },
-                    ParsingInstruction::Register {
-                        size: 3,
-                        name: String::from("dst"),
-                    },
-                    ParsingInstruction::Match { size: 1, value: 1 },
-                    ParsingInstruction::Unsigned {
-                        size: 2,
-                        name: String::from("cst43"),
-                    },
-                    ParsingInstruction::Unsigned {
-                        size: 3,
-                        name: String::from("cst20"),
-                    },
-                ],
-            ),
-        ];
-        for (unit, format) in format_combinations {
-            let Ok(parsed_variables) = parse(input.opcode, format.as_slice()) else {
+        let formats: [&[ParsingInstruction]; 4] =
+            [&SMVK8_FORMAT, &LX5_FORMAT, &LSDX1C_FORMAT, &LSDX1_FORMAT];
+        for format in formats {
+            let Ok(parsed_variables) = parse(input.opcode, format) else {
                 continue;
             };
-            let mut constant = ParsedVariable::try_get(&parsed_variables, "cst20")?.get_u8()?;
-            constant += ParsedVariable::try_get(&parsed_variables, "cst43")?.get_u8()? << 3;
-            if unit == Unit::S {
-                constant += ParsedVariable::try_get(&parsed_variables, "cst65")?.get_u8()? << 5;
-                constant += ParsedVariable::try_get(&parsed_variables, "cst7")?.get_u8()? << 7;
+            if format == &LSDX1_FORMAT {
+                if parsed_variables.try_get_u8(FormatSymbol::Opfield)? & 0b110 != 0 {
+                    continue;
+                }
             }
-            let destination = ParsedVariable::try_get(&parsed_variables, "dst")?.get_register()?;
-            return Ok(Self {
-                high: false,
-                constant: constant as u32,
-                destination,
-                unit,
-                instruction_data: InstructionData {
-                    opcode: input.opcode,
-                    compact: true,
-                    ..Default::default()
-                },
-            });
-        }
-
-        let multiunit_formats = [
-            vec![
-                ParsingInstruction::Bit {
-                    name: String::from("s"),
-                },
-                ParsingInstruction::Match {
-                    size: 2,
-                    value: 0b11,
-                },
-                ParsingInstruction::LSDUnit {
-                    name: String::from("unit"),
-                },
-                ParsingInstruction::Match {
-                    size: 2,
-                    value: 0b11,
-                },
-                ParsingInstruction::Register {
-                    size: 3,
-                    name: String::from("dst"),
-                },
-                ParsingInstruction::Match {
-                    size: 3,
-                    value: 0b010,
-                },
-                ParsingInstruction::Unsigned {
-                    size: 1,
-                    name: String::from("cst"),
-                },
-                ParsingInstruction::Unsigned {
-                    size: 2,
-                    name: String::from("cc"),
-                },
-            ],
-            vec![
-                ParsingInstruction::Bit {
-                    name: String::from("s"),
-                },
-                ParsingInstruction::Match {
-                    size: 2,
-                    value: 0b11,
-                },
-                ParsingInstruction::LSDUnit {
-                    name: String::from("unit"),
-                },
-                ParsingInstruction::Match {
-                    size: 2,
-                    value: 0b11,
-                },
-                ParsingInstruction::Register {
-                    size: 3,
-                    name: String::from("dst"),
-                },
-                ParsingInstruction::Match {
-                    size: 3,
-                    value: 0b110,
-                },
-                ParsingInstruction::Unsigned {
-                    size: 1,
-                    name: String::from("cst"),
-                },
-                ParsingInstruction::Match {
-                    size: 2,
-                    value: 0b00,
-                },
-            ],
-        ];
-
-        for format in multiunit_formats {
-            let Ok(parsed_variables) = parse(input.opcode as u32, format.as_slice()) else {
-                continue;
+            let side = parsed_variables.try_get_bool(FormatSymbol::Side)?;
+            let constant = {
+                if format == &SMVK8_FORMAT {
+                    parsed_variables.try_get_u8(FormatSymbol::UnsignedConstant(8))?
+                } else if format == &LX5_FORMAT {
+                    parsed_variables.try_get_u8(FormatSymbol::SignedConstant(5))?
+                } else if format == &LSDX1C_FORMAT {
+                    parsed_variables.try_get_u8(FormatSymbol::UnsignedConstant(1))?
+                } else if format == &LSDX1_FORMAT {
+                    parsed_variables.try_get_u8(FormatSymbol::Opfield)? & 1
+                } else {
+                    break;
+                }
             };
-            let constant = ParsedVariable::try_get(&parsed_variables, "cst")?.get_u32()?;
-            let destination = ParsedVariable::try_get(&parsed_variables, "dst")?.get_register()?;
-            let unit = ParsedVariable::try_get(&parsed_variables, "unit")?.get_unit()?;
+            let destination = (if format == &LSDX1_FORMAT {
+                parsed_variables.try_get_register(FormatSymbol::Source)?
+            } else {
+                parsed_variables.try_get_register(FormatSymbol::Destination)?
+            })
+            .to_side(side);
+            let unit = {
+                if format == &SMVK8_FORMAT {
+                    Unit::S
+                } else if format == &LX5_FORMAT {
+                    Unit::L
+                } else {
+                    parsed_variables.try_get_lsd_unit()?
+                }
+            };
             let conditional_operation = {
-                if let Ok(variable) = ParsedVariable::try_get(&parsed_variables, "cc") {
-                    match variable.get_u8()? {
-                        0 => Some(ConditionalOperation::NonZero(Register::A(0))),
-                        1 => Some(ConditionalOperation::Zero(Register::A(0))),
-                        2 => Some(ConditionalOperation::NonZero(Register::B(0))),
-                        3 => Some(ConditionalOperation::Zero(Register::B(0))),
-                        _ => None,
+                if format == &LSDX1C_FORMAT {
+                    match parsed_variables.try_get_u8(FormatSymbol::CC)? {
+                        0b00 => Some(ConditionalOperation::NonZero(Register::A(0))),
+                        0b01 => Some(ConditionalOperation::Zero(Register::A(0))),
+                        0b10 => Some(ConditionalOperation::NonZero(Register::B(0))),
+                        0b11 => Some(ConditionalOperation::Zero(Register::B(0))),
+                        _ => break,
                     }
                 } else {
                     None
@@ -313,7 +149,7 @@ impl C6000Instruction for MoveConstantInstruction {
             };
             return Ok(Self {
                 high: false,
-                constant,
+                constant: constant as u32,
                 destination,
                 unit,
                 instruction_data: InstructionData {
@@ -377,204 +213,117 @@ pub struct MoveRegisterInstruction {
     instruction_data: InstructionData,
 }
 
-impl MoveRegisterInstruction {
-    fn new_mv(opcode: u32) -> std::io::Result<Self> {
-        let format_combinations = [
-            (
-                Unit::S,
-                vec![
-                    ParsingInstruction::Bit {
-                        name: String::from("p"),
-                    },
-                    ParsingInstruction::Bit {
-                        name: String::from("s"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 10,
-                        value: 0b0001101000,
-                    },
-                    ParsingInstruction::Bit {
-                        name: String::from("x"),
-                    },
-                    ParsingInstruction::Match { size: 5, value: 0 },
-                    ParsingInstruction::RegisterCrosspath {
-                        size: 5,
-                        name: String::from("src"),
-                    },
-                    ParsingInstruction::Register {
-                        size: 5,
-                        name: String::from("dst"),
-                    },
-                    ParsingInstruction::ConditionalOperation {
-                        name: String::from("cond"),
-                    },
-                ],
-            ),
-            (
-                Unit::L,
-                vec![
-                    ParsingInstruction::Bit {
-                        name: String::from("p"),
-                    },
-                    ParsingInstruction::Bit {
-                        name: String::from("s"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 16,
-                        value: 0x106,
-                    },
-                    ParsingInstruction::RegisterPair {
-                        size: 5,
-                        name: String::from("src"),
-                    },
-                    ParsingInstruction::RegisterPair {
-                        size: 5,
-                        name: String::from("dst"),
-                    },
-                    ParsingInstruction::ConditionalOperation {
-                        name: String::from("cond"),
-                    },
-                ],
-            ),
-            (
-                Unit::L,
-                vec![
-                    ParsingInstruction::Bit {
-                        name: String::from("p"),
-                    },
-                    ParsingInstruction::Bit {
-                        name: String::from("s"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 3,
-                        value: 0b110,
-                    },
-                    ParsingInstruction::MatchMultiple {
-                        size: 7,
-                        values: vec![0x2, 0x7E],
-                    },
-                    ParsingInstruction::Bit {
-                        name: String::from("x"),
-                    },
-                    ParsingInstruction::Match { size: 5, value: 0 },
-                    ParsingInstruction::Register {
-                        size: 5,
-                        name: String::from("src"),
-                    },
-                    ParsingInstruction::Register {
-                        size: 5,
-                        name: String::from("dst"),
-                    },
-                    ParsingInstruction::ConditionalOperation {
-                        name: String::from("cond"),
-                    },
-                ],
-            ),
-            (
-                Unit::D,
-                vec![
-                    ParsingInstruction::Bit {
-                        name: String::from("p"),
-                    },
-                    ParsingInstruction::Bit {
-                        name: String::from("s"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 16,
-                        value: 0x250,
-                    },
-                    ParsingInstruction::Register {
-                        size: 5,
-                        name: String::from("src"),
-                    },
-                    ParsingInstruction::Register {
-                        size: 5,
-                        name: String::from("dst"),
-                    },
-                    ParsingInstruction::ConditionalOperation {
-                        name: String::from("cond"),
-                    },
-                ],
-            ),
-            (
-                Unit::D,
-                vec![
-                    ParsingInstruction::Bit {
-                        name: String::from("p"),
-                    },
-                    ParsingInstruction::Bit {
-                        name: String::from("s"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 10,
-                        value: 0x23C,
-                    },
-                    ParsingInstruction::Bit {
-                        name: String::from("x"),
-                    },
-                    ParsingInstruction::Match { size: 5, value: 0 },
-                    ParsingInstruction::RegisterCrosspath {
-                        size: 5,
-                        name: String::from("src"),
-                    },
-                    ParsingInstruction::Register {
-                        size: 5,
-                        name: String::from("dst"),
-                    },
-                    ParsingInstruction::ConditionalOperation {
-                        name: String::from("cond"),
-                    },
-                ],
-            ),
-            (
-                Unit::M,
-                vec![
-                    ParsingInstruction::Bit {
-                        name: String::from("p"),
-                    },
-                    ParsingInstruction::Bit {
-                        name: String::from("s"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 10,
-                        value: 0x3C,
-                    },
-                    ParsingInstruction::Bit {
-                        name: String::from("x"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 5,
-                        value: 0x1A,
-                    },
-                    ParsingInstruction::Register {
-                        size: 5,
-                        name: String::from("src"),
-                    },
-                    ParsingInstruction::Register {
-                        size: 5,
-                        name: String::from("dst"),
-                    },
-                    ParsingInstruction::ConditionalOperation {
-                        name: String::from("cond"),
-                    },
-                ],
-            ),
+impl C6000Instruction for MoveRegisterInstruction {
+    fn new(input: &super::InstructionInput) -> std::io::Result<Self> {
+        let formats: [&[ParsingInstruction]; 5] = [
+            &s_unit::ONE_OR_TWO_SOURCES_FORMAT,
+            &d_unit::ONE_OR_TWO_SOURCES_FORMAT,
+            &d_unit::EXTENDED_ONE_OR_TWO_SOURCES_FORMAT,
+            &l_unit::ONE_OR_TWO_SOURCES_FORMAT,
+            &m_unit::EXTENDED_UNARY_FORMAT,
         ];
-        for (unit, format) in format_combinations {
-            let Ok(parsed_variables) = parse(opcode, format.as_slice()) else {
+
+        for format in formats {
+            let Ok(parsed_variables) = parse(input.opcode, format) else {
                 continue;
             };
-            let p_bit = ParsedVariable::try_get(&parsed_variables, "p")?.get_bool()?;
-            let side = ParsedVariable::try_get(&parsed_variables, "s")?.get_bool()?;
-            let source_register =
-                ParsedVariable::try_get(&parsed_variables, "src")?.get_register()?;
-            let destination_register =
-                ParsedVariable::try_get(&parsed_variables, "dst")?.get_register()?;
-            let source = RegisterFile::GeneralPurpose(source_register);
-            let destination = RegisterFile::GeneralPurpose(destination_register);
-            let conditional_operation =
-                ParsedVariable::try_get(&parsed_variables, "cond")?.get_conditional_operation()?;
-            let delayed = if unit == Unit::M { true } else { false };
+            let op = parsed_variables.try_get_u8(FormatSymbol::Opfield)?;
+            if (format == &s_unit::ONE_OR_TWO_SOURCES_FORMAT
+                && op >> 1 != 0b000111
+                && op != 0b000110)
+                || (format == &l_unit::ONE_OR_TWO_SOURCES_FORMAT
+                    && op != 0b0000010
+                    && op != 0b1111110
+                    && op != 0b0100000)
+                || (format == &d_unit::ONE_OR_TWO_SOURCES_FORMAT && op != 0b010010)
+                || (format == &d_unit::EXTENDED_ONE_OR_TWO_SOURCES_FORMAT && op != 0b0011)
+                || (format == &m_unit::EXTENDED_UNARY_FORMAT && op != 0b11010)
+            {
+                continue;
+            }
+            let side = parsed_variables.try_get_bool(FormatSymbol::Side)?;
+            let mvc = {
+                if format == &s_unit::ONE_OR_TWO_SOURCES_FORMAT && op >> 1 == 0b000111 {
+                    if side != true {
+                        continue;
+                    }
+                    true
+                } else {
+                    false
+                }
+            };
+            let crosspath = {
+                if format == &d_unit::ONE_OR_TWO_SOURCES_FORMAT {
+                    false
+                } else {
+                    parsed_variables.try_get_bool(FormatSymbol::Crosspath)?
+                }
+            };
+            let delayed = {
+                if format == &m_unit::EXTENDED_UNARY_FORMAT {
+                    true
+                } else {
+                    false
+                }
+            };
+            let src1 = {
+                if format == &m_unit::EXTENDED_UNARY_FORMAT {
+                    0
+                } else {
+                    parsed_variables.try_get_u8(FormatSymbol::Source1)?
+                }
+            };
+            if src1 != 0 && !mvc {
+                continue;
+            }
+            let src2 = parsed_variables.try_get_u8(FormatSymbol::Source2)?;
+            let dst = parsed_variables.try_get_u8(FormatSymbol::Destination)?;
+
+            let (source, destination) = {
+                if mvc {
+                    let control_to_register = op & 1 == 1;
+                    let Some(control_register) = (if control_to_register {
+                        ControlRegister::from(src2, src1)
+                    } else {
+                        ControlRegister::from(dst, src1)
+                    }) else {
+                        continue;
+                    };
+                    if control_to_register {
+                        (
+                            RegisterFile::Control(control_register),
+                            RegisterFile::GeneralPurpose(Register::from(dst, side)),
+                        )
+                    } else {
+                        (
+                            RegisterFile::GeneralPurpose(Register::from(src2, side ^ crosspath)),
+                            RegisterFile::Control(control_register),
+                        )
+                    }
+                } else {
+                    (
+                        RegisterFile::GeneralPurpose(Register::from(src2, side ^ crosspath)),
+                        RegisterFile::GeneralPurpose(Register::from(dst, side)),
+                    )
+                }
+            };
+
+            let p_bit = parsed_variables.try_get_bool(FormatSymbol::Parallel)?;
+            let conditional_operation = parsed_variables.try_get_conditional_operation()?;
+            let unit = {
+                if format == &s_unit::ONE_OR_TWO_SOURCES_FORMAT {
+                    Unit::S
+                } else if format == &d_unit::ONE_OR_TWO_SOURCES_FORMAT
+                    || format == &d_unit::EXTENDED_ONE_OR_TWO_SOURCES_FORMAT
+                {
+                    Unit::D
+                } else if format == &l_unit::ONE_OR_TWO_SOURCES_FORMAT {
+                    Unit::L
+                } else {
+                    Unit::M
+                }
+            };
+
             return Ok(Self {
                 source,
                 destination,
@@ -582,187 +331,12 @@ impl MoveRegisterInstruction {
                 side,
                 delayed,
                 instruction_data: InstructionData {
-                    opcode,
+                    opcode: input.opcode,
                     conditional_operation,
                     p_bit,
                     ..Default::default()
                 },
             });
-        }
-        Err(std::io::Error::other("Not MV/MVD"))
-    }
-
-    fn new_mvc(opcode: u32) -> std::io::Result<Self> {
-        let format_combinations = [
-            vec![
-                ParsingInstruction::Bit {
-                    name: String::from("p"),
-                },
-                ParsingInstruction::BitMatch {
-                    name: String::from("s"),
-                    value: true,
-                },
-                ParsingInstruction::Match {
-                    size: 10,
-                    value: 0b0011111000,
-                },
-                ParsingInstruction::Bit {
-                    name: String::from("x"),
-                },
-                ParsingInstruction::Match { size: 5, value: 0 },
-                ParsingInstruction::ControlRegister {
-                    size: 5,
-                    name: String::from("crlo"),
-                },
-                ParsingInstruction::RegisterCrosspath {
-                    size: 5,
-                    name: String::from("dst"),
-                },
-                ParsingInstruction::ConditionalOperation {
-                    name: String::from("cond"),
-                },
-            ],
-            vec![
-                ParsingInstruction::Bit {
-                    name: String::from("p"),
-                },
-                ParsingInstruction::BitMatch {
-                    name: String::from("s"),
-                    value: true,
-                },
-                ParsingInstruction::Match {
-                    size: 10,
-                    value: 0b0011101000,
-                },
-                ParsingInstruction::Bit {
-                    name: String::from("x"),
-                },
-                ParsingInstruction::Match { size: 5, value: 0 },
-                ParsingInstruction::RegisterCrosspath {
-                    size: 5,
-                    name: String::from("src"),
-                },
-                ParsingInstruction::ControlRegister {
-                    size: 5,
-                    name: String::from("crlo"),
-                },
-                ParsingInstruction::ConditionalOperation {
-                    name: String::from("cond"),
-                },
-            ],
-            vec![
-                ParsingInstruction::Bit {
-                    name: String::from("p"),
-                },
-                ParsingInstruction::BitMatch {
-                    name: String::from("s"),
-                    value: true,
-                },
-                ParsingInstruction::Match {
-                    size: 10,
-                    value: 0b0011111000,
-                },
-                ParsingInstruction::Bit {
-                    name: String::from("x"),
-                },
-                ParsingInstruction::Unsigned {
-                    size: 5,
-                    name: String::from("crhi"),
-                },
-                ParsingInstruction::ControlRegister {
-                    size: 5,
-                    name: String::from("crlo"),
-                },
-                ParsingInstruction::RegisterCrosspath {
-                    size: 5,
-                    name: String::from("dst"),
-                },
-                ParsingInstruction::ConditionalOperation {
-                    name: String::from("cond"),
-                },
-            ],
-            vec![
-                ParsingInstruction::Bit {
-                    name: String::from("p"),
-                },
-                ParsingInstruction::BitMatch {
-                    name: String::from("s"),
-                    value: true,
-                },
-                ParsingInstruction::Match {
-                    size: 10,
-                    value: 0b0011101000,
-                },
-                ParsingInstruction::Bit {
-                    name: String::from("x"),
-                },
-                ParsingInstruction::Unsigned {
-                    size: 5,
-                    name: String::from("crhi"),
-                },
-                ParsingInstruction::RegisterCrosspath {
-                    size: 5,
-                    name: String::from("src"),
-                },
-                ParsingInstruction::ControlRegister {
-                    size: 5,
-                    name: String::from("crlo"),
-                },
-                ParsingInstruction::ConditionalOperation {
-                    name: String::from("cond"),
-                },
-            ],
-        ];
-        for format in format_combinations {
-            let Ok(parsed_variables) = parse(opcode, format.as_slice()) else {
-                continue;
-            };
-            let p_bit = ParsedVariable::try_get(&parsed_variables, "p")?.get_bool()?;
-            let control_register =
-                ParsedVariable::try_get(&parsed_variables, "crlo")?.get_control_register()?;
-            let (source, destination) = {
-                if let Ok(variable) = ParsedVariable::try_get(&parsed_variables, "dst") {
-                    let destination_register = variable.get_register()?;
-                    (
-                        RegisterFile::Control(control_register),
-                        RegisterFile::GeneralPurpose(destination_register),
-                    )
-                } else if let Ok(variable) = ParsedVariable::try_get(&parsed_variables, "src") {
-                    let source_register = variable.get_register()?;
-                    (
-                        RegisterFile::GeneralPurpose(source_register),
-                        RegisterFile::Control(control_register),
-                    )
-                } else {
-                    continue;
-                }
-            };
-            let conditional_operation =
-                ParsedVariable::try_get(&parsed_variables, "cond")?.get_conditional_operation()?;
-            return Ok(Self {
-                source,
-                destination,
-                unit: Unit::S,
-                side: true,
-                delayed: false,
-                instruction_data: InstructionData {
-                    opcode,
-                    conditional_operation,
-                    p_bit,
-                    ..Default::default()
-                },
-            });
-        }
-        Err(std::io::Error::other("Not MVC"))
-    }
-}
-
-impl C6000Instruction for MoveRegisterInstruction {
-    fn new(input: &super::InstructionInput) -> std::io::Result<Self> {
-        if let Ok(ret_val) = Self::new_mv(input.opcode) {
-            return Ok(ret_val);
-        } else if let Ok(ret_val) = Self::new_mvc(input.opcode) {
-            return Ok(ret_val);
         }
 
         Err(std::io::Error::new(
@@ -772,100 +346,54 @@ impl C6000Instruction for MoveRegisterInstruction {
     }
 
     fn new_compact(input: &super::InstructionInput) -> std::io::Result<Self> {
-        let mv_format = [
-            ParsingInstruction::Bit {
-                name: String::from("s"),
-            },
-            ParsingInstruction::Match {
-                size: 2,
-                value: 0b11,
-            },
-            ParsingInstruction::LSDUnit {
-                name: String::from("unit"),
-            },
-            ParsingInstruction::Match { size: 1, value: 0 },
-            ParsingInstruction::Bit {
-                name: String::from("ms_bit"),
-            },
-            ParsingInstruction::Register {
-                size: 3,
-                name: String::from("src"),
-            },
-            ParsingInstruction::Unsigned {
-                size: 2,
-                name: String::from("ms"),
-            },
-            ParsingInstruction::Bit {
-                name: String::from("x"),
-            },
-            ParsingInstruction::Register {
-                size: 3,
-                name: String::from("dst"),
-            },
-        ];
+        let formats: [&[ParsingInstruction]; 3] = [&LSDMVTO_FORMAT, &LSDMVFR_FORMAT, &SX1_FORMAT];
 
-        let mvc_format = [
-            ParsingInstruction::Bit {
-                name: String::from("s"),
-            },
-            ParsingInstruction::Match {
-                size: 6,
-                value: 0b110111,
-            },
-            ParsingInstruction::Register {
-                size: 3,
-                name: String::from("src"),
-            },
-            ParsingInstruction::Match {
-                size: 6,
-                value: 0b110110,
-            },
-        ];
-
-        if let Ok(parsed_variables) = parse(input.opcode, &mv_format) {
-            let unit = ParsedVariable::try_get(&parsed_variables, "unit")?.get_unit()?;
-            let side = ParsedVariable::try_get(&parsed_variables, "s")?.get_bool()?;
-            let crosspath = ParsedVariable::try_get(&parsed_variables, "x")?.get_bool()?;
-            let ms_bit = ParsedVariable::try_get(&parsed_variables, "ms_bit")?.get_bool()?;
-            let ms = ParsedVariable::try_get(&parsed_variables, "ms")?.get_u8()?;
-            let mut source_register =
-                ParsedVariable::try_get(&parsed_variables, "src")?.get_register()?;
-            let mut destination_register =
-                ParsedVariable::try_get(&parsed_variables, "dst")?.get_register()?;
-            if ms_bit {
-                destination_register += (ms) << 3;
-            } else {
-                source_register += (ms) << 3;
+        for format in formats {
+            let Ok(parsed_variables) = parse(input.opcode, format) else {
+                continue;
+            };
+            let side = parsed_variables.try_get_bool(FormatSymbol::Side)?;
+            if format == &SX1_FORMAT {
+                if parsed_variables.try_get_u8(FormatSymbol::Opfield)? != 0b110 || side != true {
+                    continue;
+                }
             }
-            if crosspath {
-                source_register = !source_register;
-            }
-            let source = RegisterFile::GeneralPurpose(source_register);
-            let destination = RegisterFile::GeneralPurpose(destination_register);
+            let unit = {
+                if format == &SX1_FORMAT {
+                    Unit::S
+                } else {
+                    parsed_variables.try_get_lsd_unit()?
+                }
+            };
+            let crosspath = {
+                if format == &SX1_FORMAT {
+                    false
+                } else {
+                    parsed_variables.try_get_bool(FormatSymbol::Crosspath)?
+                }
+            };
+            let source = RegisterFile::GeneralPurpose(
+                parsed_variables
+                    .try_get_register(FormatSymbol::Source2)?
+                    .to_side(side ^ crosspath),
+            );
+            let destination = {
+                if format == &SX1_FORMAT {
+                    RegisterFile::Control(ControlRegister::ILC)
+                } else {
+                    RegisterFile::GeneralPurpose(
+                        parsed_variables
+                            .try_get_register(FormatSymbol::Destination)?
+                            .to_side(side),
+                    )
+                }
+            };
             return Ok(Self {
                 source,
                 destination,
                 side,
                 delayed: false,
                 unit,
-                instruction_data: InstructionData {
-                    opcode: input.opcode,
-                    compact: true,
-                    ..Default::default()
-                },
-            });
-        } else if let Ok(parsed_variables) = parse(input.opcode, &mvc_format) {
-            let side = ParsedVariable::try_get(&parsed_variables, "s")?.get_bool()?;
-            let source_register =
-                ParsedVariable::try_get(&parsed_variables, "src")?.get_register()?;
-            let source = RegisterFile::GeneralPurpose(source_register);
-            let destination = RegisterFile::Control(ControlRegister::ILC);
-            return Ok(Self {
-                source,
-                destination,
-                side,
-                delayed: false,
-                unit: Unit::S,
                 instruction_data: InstructionData {
                     opcode: input.opcode,
                     compact: true,

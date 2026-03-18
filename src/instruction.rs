@@ -5,6 +5,7 @@ use std::fmt::Display;
 use std::io::{Error, ErrorKind, Result};
 
 pub mod branching;
+pub(crate) mod formats;
 pub mod fphead;
 pub mod invalid;
 pub mod memory;
@@ -176,7 +177,9 @@ impl Display for Unit {
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum ConditionalOperation {
+    /// Specified by *creg* = 000 and *z* = 1.
     ReservedLow,
+    /// Specified by *creg* = 111, *z* can be any value.
     ReservedHigh,
     Zero(Register),
     NonZero(Register),

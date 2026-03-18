@@ -2,7 +2,8 @@ use std::io::{Error, ErrorKind, Result};
 
 use crate::instruction::{
     C6000Instruction, DataSize, InstructionData,
-    parser::{ParsedVariable, ParsingInstruction, parse},
+    formats::{FormatSymbol, no_unit::FPHEAD_FORMAT},
+    parser::parse,
 };
 
 #[derive(Clone)]
@@ -37,40 +38,7 @@ pub struct CompactInstructionHeader {
 
 impl C6000Instruction for CompactInstructionHeader {
     fn new(input: &super::InstructionInput) -> Result<Self> {
-        let format = [
-            ParsingInstruction::BitArray {
-                size: 14,
-                name: String::from("p"),
-            },
-            ParsingInstruction::Bit {
-                name: String::from("SAT"),
-            },
-            ParsingInstruction::Bit {
-                name: String::from("BR"),
-            },
-            ParsingInstruction::Unsigned {
-                size: 2,
-                name: String::from("DSZ_1"),
-            },
-            ParsingInstruction::Bit {
-                name: String::from("DSZ_2"),
-            },
-            ParsingInstruction::Bit {
-                name: String::from("RS"),
-            },
-            ParsingInstruction::Bit {
-                name: String::from("PROT"),
-            },
-            ParsingInstruction::BitArray {
-                size: 7,
-                name: String::from("layout"),
-            },
-            ParsingInstruction::Match {
-                size: 4,
-                value: 0b1110,
-            },
-        ];
-        let parsed_variables = parse(input.opcode, &format).map_err(|e| {
+        let parsed_variables = parse(input.opcode, &FPHEAD_FORMAT).map_err(|e| {
             Error::new(
                 ErrorKind::InvalidInput,
                 format!("Not a compact instruction header: {e}"),
@@ -78,26 +46,24 @@ impl C6000Instruction for CompactInstructionHeader {
         })?;
 
         let layout = {
-            let layout_vec =
-                ParsedVariable::try_get(&parsed_variables, "layout")?.get_bool_vec()?;
+            let layout_vec = parsed_variables.try_get_bool_vec(FormatSymbol::FPHeadLayout)?;
             let Some(layout_ref) = layout_vec.first_chunk::<7>() else {
                 return Err(Error::other("Layout doesn't have 7 elements"));
             };
             *layout_ref
         };
         let compact_p_bits = {
-            let layout_vec = ParsedVariable::try_get(&parsed_variables, "p")?.get_bool_vec()?;
+            let layout_vec = parsed_variables.try_get_bool_vec(FormatSymbol::FPHeadPBits)?;
             let Some(layout_ref) = layout_vec.first_chunk::<14>() else {
                 return Err(Error::other("P-bits don't have 14 elements"));
             };
             *layout_ref
         };
-        let loads_protected = ParsedVariable::try_get(&parsed_variables, "PROT")?.get_bool()?;
-        let register_set = ParsedVariable::try_get(&parsed_variables, "RS")?.get_bool()?;
-        let data_sizes_1 = ParsedVariable::try_get(&parsed_variables, "DSZ_1")?.get_u8()?;
-        let data_sizes_2 = ParsedVariable::try_get(&parsed_variables, "DSZ_2")?.get_bool()?;
+        let loads_protected = parsed_variables.try_get_bool(FormatSymbol::FPHeadLoadsProtected)?;
+        let register_set = parsed_variables.try_get_bool(FormatSymbol::FPHeadRegisterSet)?;
+        let data_sizes = parsed_variables.try_get_u8(FormatSymbol::FPHeadDataSizes)?;
         let primary_data_size = {
-            if data_sizes_2 == true {
+            if data_sizes & 0b100 != 0 {
                 DataSize::DoubleWord
             } else {
                 DataSize::Word
@@ -105,7 +71,7 @@ impl C6000Instruction for CompactInstructionHeader {
         };
         let secondary_data_size = {
             if primary_data_size == DataSize::DoubleWord {
-                match data_sizes_1 {
+                match data_sizes & 0b11 {
                     0 => DataSize::Word,
                     1 => DataSize::Byte,
                     2 => DataSize::NonAlignedWord,
@@ -113,7 +79,7 @@ impl C6000Instruction for CompactInstructionHeader {
                     _ => DataSize::Word,
                 }
             } else {
-                match data_sizes_1 {
+                match data_sizes & 0b11 {
                     0 => DataSize::ByteUnsigned,
                     1 => DataSize::Byte,
                     2 => DataSize::HalfWordUnsigned,
@@ -123,8 +89,8 @@ impl C6000Instruction for CompactInstructionHeader {
             }
         };
         let decode_compact_branches =
-            ParsedVariable::try_get(&parsed_variables, "BR")?.get_bool()?;
-        let saturate = ParsedVariable::try_get(&parsed_variables, "SAT")?.get_bool()?;
+            parsed_variables.try_get_bool(FormatSymbol::FPHeadBranches)?;
+        let saturate = parsed_variables.try_get_bool(FormatSymbol::FPHeadSaturate)?;
         Ok(Self {
             instruction_data: InstructionData {
                 opcode: input.opcode,

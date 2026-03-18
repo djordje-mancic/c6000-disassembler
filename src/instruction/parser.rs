@@ -1,18 +1,13 @@
 use std::{
+    cmp::max,
     collections::HashMap,
     io::{Error, ErrorKind, Result},
 };
 
-use crate::instruction::{
-    ConditionalOperation, Unit,
-    register::{ControlRegister, Register},
-};
+use crate::instruction::{ConditionalOperation, Unit, formats::FormatSymbol, register::Register};
 
-pub fn parse(
-    opcode: u32,
-    format: &[ParsingInstruction],
-) -> Result<HashMap<String, ParsedVariable>> {
-    let mut resulting_map = HashMap::<String, ParsedVariable>::new();
+pub fn parse(opcode: u32, format: &[ParsingInstruction]) -> Result<ParsingResult> {
+    let mut result = ParsingResult::new();
     let mut temp_opcode = opcode;
 
     for instruction in format {
@@ -28,183 +23,179 @@ pub fn parse(
                     ));
                 }
             }
-            ParsingInstruction::MatchMultiple { size, values } => {
-                let masked_value = read_u32(&mut temp_opcode, *size);
-                for value in values {
-                    if masked_value == *value {
-                        continue;
+            ParsingInstruction::Bit { symbol } | ParsingInstruction::BitMatch { symbol, .. } => {
+                let read_value = read_bool(&mut temp_opcode);
+                if let ParsingInstruction::BitMatch { value, .. } = instruction {
+                    if read_value != *value {
+                        return Err(Error::new(
+                            ErrorKind::InvalidInput,
+                            format!(
+                                "Opcode does not match instruction format ({symbol:?} is {read_value} instead of {value})"
+                            ),
+                        ));
                     }
                 }
-                return Err(Error::new(
-                    ErrorKind::InvalidInput,
-                    format!("Opcode does not match instruction format (got {masked_value:b})"),
-                ));
+                result.add(*symbol, ParsedVariable::Bool(read_value));
             }
-            ParsingInstruction::Bit { name } => {
-                resulting_map.insert(
-                    name.clone(),
-                    ParsedVariable::Bool(read_bool(&mut temp_opcode)),
-                );
-            }
-            ParsingInstruction::BitMatch { name, value } => {
-                let read_value = read_bool(&mut temp_opcode);
-                if read_value != *value {
-                    return Err(Error::new(
-                        ErrorKind::InvalidInput,
-                        format!(
-                            "Opcode does not match instruction format ({name} is {read_value} instead of {value})"
-                        ),
-                    ));
-                }
-                resulting_map.insert(name.clone(), ParsedVariable::Bool(read_value));
-            }
-            ParsingInstruction::BitArray { size, name } => {
+            ParsingInstruction::BitArray { size, symbol } => {
                 let mut value = Vec::<bool>::new();
                 for _ in 0..*size {
                     value.push(read_bool(&mut temp_opcode));
                 }
-                resulting_map.insert(name.clone(), ParsedVariable::BoolVec(value));
+                result.add(*symbol, ParsedVariable::BoolVec(value));
             }
-            ParsingInstruction::Unsigned { size, name } => {
+            ParsingInstruction::Bitfield { size, symbol }
+            | ParsingInstruction::BitfieldChunk { size, symbol, .. } => {
                 let value = read_u32(&mut temp_opcode, *size);
                 let parsed_variable = {
-                    if *size > 8 {
-                        ParsedVariable::U32(value)
+                    if let ParsingInstruction::BitfieldChunk { index, .. } = instruction {
+                        if result.variables.get(symbol).is_none() {
+                            result
+                                .variables
+                                .insert(*symbol, ParsedVariable::Bitfield8 { value: 0, size: 0 });
+                        }
+                        let variable_value = result.try_get_u32(*symbol)? | (value << index);
+                        let bitfield_size = result.try_get_size(*symbol)?;
+                        let current_span = index + size;
+                        ParsedVariable::Bitfield32 {
+                            value: variable_value,
+                            size: max(bitfield_size, current_span),
+                        }
                     } else {
-                        ParsedVariable::U8(value as u8)
+                        if *size > 8 {
+                            ParsedVariable::Bitfield32 { value, size: *size }
+                        } else {
+                            ParsedVariable::Bitfield8 {
+                                value: value as u8,
+                                size: *size,
+                            }
+                        }
                     }
                 };
-                resulting_map.insert(name.clone(), parsed_variable);
+                result.add(*symbol, parsed_variable);
             }
-            ParsingInstruction::Signed { size, name } => {
-                let value = read_i32(&mut temp_opcode, *size);
-                resulting_map.insert(name.clone(), ParsedVariable::I32(value));
-            }
-            ParsingInstruction::Register { size, name }
-            | ParsingInstruction::RegisterCrosspath { size, name }
-            | ParsingInstruction::RegisterPair { size, name } => {
-                let u32_value = read_u32(&mut temp_opcode, *size);
-                let side = {
-                    let mut s = ParsedVariable::try_get(&resulting_map, "s")?.get_bool()?;
-                    if let ParsingInstruction::RegisterCrosspath { size: _, name: _ } = instruction
-                    {
-                        let crosspath = ParsedVariable::try_get(&resulting_map, "x")?.get_bool()?;
-                        s ^= crosspath;
-                    }
-                    s
-                };
-                let value = {
-                    if let ParsingInstruction::RegisterPair { size: _, name: _ } = instruction {
-                        Register::from_pair(u32_value as u8, side)
-                    } else {
-                        Register::from(u32_value as u8, side)
-                    }
-                };
-                resulting_map.insert(name.clone(), ParsedVariable::Register(value));
-            }
-            ParsingInstruction::ControlRegister { size, name } => {
-                let low_bits = read_u32(&mut temp_opcode, *size) as u8;
-                let high_bits = {
-                    if let Ok(variable) = ParsedVariable::try_get(&resulting_map, "crhi") {
-                        variable.get_u8()?
-                    } else {
-                        0
-                    }
-                };
-                let Some(value) = ControlRegister::from(low_bits, high_bits) else {
-                    return Err(Error::other(format!(
-                        "Invalid Control Register values (got crhi crlo {high_bits:b} {low_bits:b})"
-                    )));
-                };
-                resulting_map.insert(name.clone(), ParsedVariable::ControlRegister(value));
-            }
-            ParsingInstruction::LSDUnit { name } => {
-                let unit = match read_u32(&mut temp_opcode, 2) {
-                    0 => Unit::L,
-                    1 => Unit::S,
-                    2 => Unit::D,
-                    num => return Err(Error::other(format!("Invalid LSDUnit (got {num})"))),
-                };
-                resulting_map.insert(name.clone(), ParsedVariable::Unit(unit));
-            }
-            ParsingInstruction::ConditionalOperation { name } => {
+            ParsingInstruction::ConditionalOperation => {
                 let z = read_bool(&mut temp_opcode);
                 let creg = read_u32(&mut temp_opcode, 3) as u8;
-                resulting_map.insert(
-                    name.clone(),
+                result.add(
+                    FormatSymbol::ConditionalOperation,
                     ParsedVariable::ConditionalOperation(ConditionalOperation::from(creg, z)),
                 );
             }
         }
     }
 
-    Ok(resulting_map)
+    Ok(result)
 }
 
-#[derive(Debug)]
+#[derive(Default)]
+pub struct ParsingResult {
+    variables: HashMap<FormatSymbol, ParsedVariable>,
+}
+
+impl ParsingResult {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn add(&mut self, symbol: FormatSymbol, variable: ParsedVariable) {
+        self.variables.insert(symbol, variable);
+    }
+
+    pub fn try_get_raw(&self, symbol: FormatSymbol) -> Result<&ParsedVariable> {
+        let Some(value) = self.variables.get(&symbol) else {
+            return Err(Error::other("Parsing error"));
+        };
+        Ok(value)
+    }
+
+    pub fn try_get_bool(&self, symbol: FormatSymbol) -> Result<bool> {
+        let variable = self.try_get_raw(symbol)?;
+        variable.get_bool()
+    }
+
+    pub fn try_get_bool_vec(&self, symbol: FormatSymbol) -> Result<Vec<bool>> {
+        let variable = self.try_get_raw(symbol)?;
+        variable.get_bool_vec()
+    }
+
+    pub fn try_get_u32(&self, symbol: FormatSymbol) -> Result<u32> {
+        let variable = self.try_get_raw(symbol)?;
+        variable.get_u32()
+    }
+
+    pub fn try_get_i32(&self, symbol: FormatSymbol) -> Result<i32> {
+        let variable = self.try_get_raw(symbol)?;
+        variable.get_i32()
+    }
+
+    pub fn try_get_u8(&self, symbol: FormatSymbol) -> Result<u8> {
+        let variable = self.try_get_raw(symbol)?;
+        variable.get_u8()
+    }
+
+    pub fn try_get_size(&self, symbol: FormatSymbol) -> Result<u8> {
+        let variable = self.try_get_raw(symbol)?;
+        variable.get_size()
+    }
+
+    pub fn try_get_lsd_unit(&self) -> Result<Unit> {
+        let value = self.try_get_u8(FormatSymbol::Unit)?;
+        match value {
+            0b00 => Ok(Unit::L),
+            0b01 => Ok(Unit::S),
+            0b10 => Ok(Unit::D),
+            _ => Err(Error::other("LSD unit value undefined")),
+        }
+    }
+
+    pub fn try_get_register(&self, symbol: FormatSymbol) -> Result<Register> {
+        let variable = self.try_get_raw(symbol)?;
+        let value = variable.get_u8()?;
+        Ok(Register::from(value, false))
+    }
+
+    pub fn try_get_conditional_operation(&self) -> Result<Option<ConditionalOperation>> {
+        let variable = self.try_get_raw(FormatSymbol::ConditionalOperation)?;
+        variable.get_conditional_operation()
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum ParsingInstruction {
     Match {
-        size: usize,
+        size: u8,
         value: u32,
     },
-    MatchMultiple {
-        size: usize,
-        values: Vec<u32>,
-    },
     Bit {
-        name: String,
+        symbol: FormatSymbol,
     },
     BitMatch {
-        name: String,
+        symbol: FormatSymbol,
         value: bool,
     },
     BitArray {
-        size: usize,
-        name: String,
+        size: u8,
+        symbol: FormatSymbol,
     },
-    Unsigned {
-        size: usize,
-        name: String,
+    Bitfield {
+        size: u8,
+        symbol: FormatSymbol,
     },
-    Signed {
-        size: usize,
-        name: String,
+    BitfieldChunk {
+        size: u8,
+        symbol: FormatSymbol,
+        index: u8,
     },
-    Register {
-        size: usize,
-        name: String,
-    },
-    RegisterPair {
-        size: usize,
-        name: String,
-    },
-    RegisterCrosspath {
-        size: usize,
-        name: String,
-    },
-    ControlRegister {
-        size: usize,
-        name: String,
-    },
-    /// For .L .S and .D compact maps.
-    LSDUnit {
-        name: String,
-    },
-    ConditionalOperation {
-        name: String,
-    },
+    ConditionalOperation,
 }
 
 #[derive(Clone)]
 pub enum ParsedVariable {
     Bool(bool),
     BoolVec(Vec<bool>),
-    U32(u32),
-    U8(u8),
-    I32(i32),
-    Register(Register),
-    ControlRegister(ControlRegister),
-    Unit(Unit),
+    Bitfield32 { value: u32, size: u8 },
+    Bitfield8 { value: u8, size: u8 },
     ConditionalOperation(Option<ConditionalOperation>),
 }
 
@@ -226,58 +217,41 @@ impl ParsedVariable {
     }
 
     pub fn get_u32(&self) -> Result<u32> {
-        if let ParsedVariable::U32(value) = self {
+        if let ParsedVariable::Bitfield32 { value, .. } = self {
             Ok(*value)
-        } else if let ParsedVariable::U8(value) = self {
+        } else if let ParsedVariable::Bitfield8 { value, .. } = self {
             Ok(*value as u32)
         } else {
-            Err(Error::other("Not a U32 variable"))
+            Err(Error::other("Not a bitfield"))
+        }
+    }
+
+    pub fn get_size(&self) -> Result<u8> {
+        match self {
+            ParsedVariable::Bitfield32 { size, .. } | ParsedVariable::Bitfield8 { size, .. } => {
+                Ok(*size)
+            }
+            _ => Err(Error::other("Not a bitfield")),
         }
     }
 
     pub fn get_i32(&self) -> Result<i32> {
-        if let ParsedVariable::I32(value) = self {
-            Ok(*value)
-        } else if let ParsedVariable::U32(value) = self {
-            Ok(u32::cast_signed(*value))
-        } else if let ParsedVariable::U8(value) = self {
-            Ok(u8::cast_signed(*value) as i32)
+        if let ParsedVariable::Bitfield32 { value, size } = self {
+            Ok(i32_from_bitfield(*value, *size))
+        } else if let ParsedVariable::Bitfield8 { value, size } = self {
+            Ok(i32_from_bitfield(*value as u32, *size))
         } else {
-            Err(Error::other("Not a U32 variable"))
+            Err(Error::other("Not a bitfield"))
         }
     }
 
     pub fn get_u8(&self) -> Result<u8> {
-        if let ParsedVariable::U8(value) = self {
+        if let ParsedVariable::Bitfield8 { value, .. } = self {
             Ok(*value)
-        } else if let ParsedVariable::U32(value) = self {
+        } else if let ParsedVariable::Bitfield32 { value, .. } = self {
             Ok(*value as u8)
         } else {
-            Err(Error::other("Not a U8 variable"))
-        }
-    }
-
-    pub fn get_register(&self) -> Result<Register> {
-        if let ParsedVariable::Register(value) = self {
-            Ok(*value)
-        } else {
-            Err(Error::other("Not a Register variable"))
-        }
-    }
-
-    pub fn get_control_register(&self) -> Result<ControlRegister> {
-        if let ParsedVariable::ControlRegister(value) = self {
-            Ok(*value)
-        } else {
-            Err(Error::other("Not a Control Register variable"))
-        }
-    }
-
-    pub fn get_unit(&self) -> Result<Unit> {
-        if let ParsedVariable::Unit(value) = self {
-            Ok(*value)
-        } else {
-            Err(Error::other("Not a Unit variable"))
+            Err(Error::other("Not a bitfield"))
         }
     }
 
@@ -288,13 +262,6 @@ impl ParsedVariable {
             Err(Error::other("Not a Conditional Operation variable"))
         }
     }
-
-    pub fn try_get<'a>(hashmap: &'a HashMap<String, Self>, name: &str) -> Result<&'a Self> {
-        let Some(value) = hashmap.get(name) else {
-            return Err(Error::other("Parsing error"));
-        };
-        Ok(value)
-    }
 }
 
 fn read_bool(opcode: &mut u32) -> bool {
@@ -303,10 +270,9 @@ fn read_bool(opcode: &mut u32) -> bool {
     value
 }
 
-fn read_i32(opcode: &mut u32, size: usize) -> i32 {
+fn i32_from_bitfield(bitfield: u32, size: u8) -> i32 {
     let mask = create_mask(size);
-    let mut value_u32 = *opcode & mask;
-    *opcode >>= size;
+    let mut value_u32 = bitfield & mask;
     let sign_bit_mask = 1 << (size - 1);
     let value = {
         if value_u32 & sign_bit_mask == sign_bit_mask {
@@ -320,14 +286,14 @@ fn read_i32(opcode: &mut u32, size: usize) -> i32 {
     value
 }
 
-fn read_u32(opcode: &mut u32, size: usize) -> u32 {
+fn read_u32(opcode: &mut u32, size: u8) -> u32 {
     let mask = create_mask(size);
     let value = *opcode & mask;
     *opcode >>= size;
     value
 }
 
-fn create_mask(size: usize) -> u32 {
+fn create_mask(size: u8) -> u32 {
     let mut mask = 0u32;
     for _ in 0..size {
         mask <<= 1;

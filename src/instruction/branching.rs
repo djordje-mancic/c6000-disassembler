@@ -1,11 +1,16 @@
-use std::{
-    cmp::min,
-    io::{self, Error, ErrorKind},
-};
+use std::io::{self, Error, ErrorKind};
 
 use crate::instruction::{
     C6000Instruction, ConditionalOperation, InstructionData,
-    parser::{ParsedVariable, ParsingInstruction, parse},
+    formats::{
+        FormatSymbol,
+        s_unit::{
+            BRANCH_DISPLACEMENT_FORMAT, BRANCH_DISPLACEMENT_NOP_FORMAT, BRANCH_POINTER_FORMAT,
+            BRANCH_REGISTER_FORMAT, BRANCH_REGISTER_NOP_FORMAT, SBS7_FORMAT, SBS7C_FORMAT,
+            SBU8_FORMAT, SBU8C_FORMAT, SCS10_FORMAT, SX1B_FORMAT,
+        },
+    },
+    parser::{ParsingInstruction, parse},
     register::{ControlRegister, Register},
 };
 
@@ -47,154 +52,60 @@ impl BranchInstruction {
 
 impl C6000Instruction for BranchInstruction {
     fn new(input: &super::InstructionInput) -> std::io::Result<Self> {
-        let formats = [
-            vec![
-                ParsingInstruction::Bit {
-                    name: String::from("p"),
-                },
-                ParsingInstruction::Bit {
-                    name: String::from("s"),
-                },
-                ParsingInstruction::Match {
-                    size: 5,
-                    value: 0b100,
-                },
-                ParsingInstruction::Signed {
-                    size: 21,
-                    name: String::from("cst"),
-                },
-                ParsingInstruction::ConditionalOperation {
-                    name: String::from("cond"),
-                },
-            ],
-            vec![
-                ParsingInstruction::Bit {
-                    name: String::from("p"),
-                },
-                ParsingInstruction::Bit {
-                    name: String::from("s"),
-                },
-                ParsingInstruction::Match {
-                    size: 10,
-                    value: 0xD8,
-                },
-                ParsingInstruction::Bit {
-                    name: String::from("x"),
-                },
-                ParsingInstruction::Match { size: 5, value: 0 },
-                ParsingInstruction::RegisterCrosspath {
-                    size: 5,
-                    name: String::from("src"),
-                },
-                ParsingInstruction::Match { size: 5, value: 0 },
-                ParsingInstruction::ConditionalOperation {
-                    name: String::from("cond"),
-                },
-            ],
-            vec![
-                ParsingInstruction::Bit {
-                    name: String::from("p"),
-                },
-                ParsingInstruction::BitMatch {
-                    name: String::from("s"),
-                    value: true,
-                },
-                ParsingInstruction::Match {
-                    size: 16,
-                    value: 0b111000,
-                },
-                ParsingInstruction::Unsigned {
-                    size: 3,
-                    name: String::from("op"),
-                },
-                ParsingInstruction::Match { size: 7, value: 0 },
-                ParsingInstruction::ConditionalOperation {
-                    name: String::from("cond"),
-                },
-            ],
-            vec![
-                ParsingInstruction::Bit {
-                    name: String::from("p"),
-                },
-                ParsingInstruction::Bit {
-                    name: String::from("s"),
-                },
-                ParsingInstruction::Match {
-                    size: 11,
-                    value: 0x48,
-                },
-                ParsingInstruction::Unsigned {
-                    size: 3,
-                    name: String::from("nop"),
-                },
-                ParsingInstruction::Signed {
-                    size: 12,
-                    name: String::from("cst"),
-                },
-                ParsingInstruction::ConditionalOperation {
-                    name: String::from("cond"),
-                },
-            ],
-            vec![
-                ParsingInstruction::Bit {
-                    name: String::from("p"),
-                },
-                ParsingInstruction::BitMatch {
-                    name: String::from("s"),
-                    value: true,
-                },
-                ParsingInstruction::Match {
-                    size: 10,
-                    value: 0xD8,
-                },
-                ParsingInstruction::Bit {
-                    name: String::from("x"),
-                },
-                ParsingInstruction::Unsigned {
-                    size: 3,
-                    name: String::from("nop"),
-                },
-                ParsingInstruction::Match { size: 2, value: 0 },
-                ParsingInstruction::RegisterCrosspath {
-                    size: 5,
-                    name: String::from("src"),
-                },
-                ParsingInstruction::Match { size: 5, value: 1 },
-                ParsingInstruction::ConditionalOperation {
-                    name: String::from("cond"),
-                },
-            ],
+        let formats: [&[ParsingInstruction]; 5] = [
+            &BRANCH_DISPLACEMENT_FORMAT,
+            &BRANCH_REGISTER_FORMAT,
+            &BRANCH_POINTER_FORMAT,
+            &BRANCH_DISPLACEMENT_NOP_FORMAT,
+            &BRANCH_REGISTER_NOP_FORMAT,
         ];
         for format in formats {
-            let Ok(parsed_variables) = parse(input.opcode, format.as_slice()) else {
+            let Ok(parsed_variables) = parse(input.opcode, format) else {
                 continue;
             };
-            let p_bit = ParsedVariable::try_get(&parsed_variables, "p")?.get_bool()?;
-            let side = ParsedVariable::try_get(&parsed_variables, "s")?.get_bool()?;
-            let conditional_operation =
-                ParsedVariable::try_get(&parsed_variables, "cond")?.get_conditional_operation()?;
+            let p_bit = parsed_variables.try_get_bool(FormatSymbol::Parallel)?;
+            let side = {
+                if format == &BRANCH_POINTER_FORMAT || format == &BRANCH_REGISTER_NOP_FORMAT {
+                    true
+                } else {
+                    parsed_variables.try_get_bool(FormatSymbol::Side)?
+                }
+            };
+            let conditional_operation = parsed_variables.try_get_conditional_operation()?;
             let nop_count = {
-                if let Ok(variable) = ParsedVariable::try_get(&parsed_variables, "nop") {
-                    variable.get_u8()?
+                if format == &BRANCH_DISPLACEMENT_NOP_FORMAT
+                    || format == &BRANCH_REGISTER_NOP_FORMAT
+                {
+                    parsed_variables.try_get_u8(FormatSymbol::Source1)?
+                } else if format == &BRANCH_DISPLACEMENT_FORMAT
+                    && conditional_operation == Some(ConditionalOperation::ReservedLow)
+                {
+                    5
                 } else {
                     0
                 }
             };
             let branch_using = {
-                if let Ok(variable) = ParsedVariable::try_get(&parsed_variables, "cst") {
+                if format == &BRANCH_DISPLACEMENT_FORMAT {
                     BranchUsing::Displacement(
-                        variable.get_i32()? << {
-                            if nop_count > 0 && input.fphead.is_some() {
-                                1
-                            } else {
-                                2
-                            }
+                        parsed_variables.try_get_i32(FormatSymbol::Constant(21))? << 2,
+                    )
+                } else if format == &BRANCH_DISPLACEMENT_NOP_FORMAT {
+                    BranchUsing::Displacement(
+                        parsed_variables.try_get_i32(FormatSymbol::Source2)? << {
+                            if input.fphead.is_some() { 1 } else { 2 }
                         },
                     )
-                } else if let Ok(variable) = ParsedVariable::try_get(&parsed_variables, "src") {
-                    BranchUsing::Register(variable.get_register()?)
-                } else if let Ok(variable) = ParsedVariable::try_get(&parsed_variables, "op") {
-                    let opcode = variable.get_u8()?;
+                } else if format == &BRANCH_REGISTER_FORMAT || format == &BRANCH_REGISTER_NOP_FORMAT
+                {
+                    let crosspath = parsed_variables.try_get_bool(FormatSymbol::Crosspath)?;
+                    BranchUsing::Register(
+                        parsed_variables
+                            .try_get_register(FormatSymbol::Source2)?
+                            .to_side(side ^ crosspath),
+                    )
+                } else if format == &BRANCH_POINTER_FORMAT {
+                    let opcode = parsed_variables.try_get_u8(FormatSymbol::Opfield)?;
                     match opcode {
                         0b110 => BranchUsing::Pointer(ControlRegister::IRP),
                         0b111 => BranchUsing::Pointer(ControlRegister::NRP),
@@ -225,172 +136,58 @@ impl C6000Instruction for BranchInstruction {
     }
 
     fn new_compact(input: &super::InstructionInput) -> std::io::Result<Self> {
-        let formats = [
-            (
-                "sbs7",
-                vec![
-                    ParsingInstruction::Bit {
-                        name: String::from("s"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 5,
-                        value: 0x5,
-                    },
-                    ParsingInstruction::Signed {
-                        size: 7,
-                        name: String::from("cst"),
-                    },
-                    ParsingInstruction::Unsigned {
-                        size: 3,
-                        name: String::from("nop"),
-                    },
-                ],
-            ),
-            (
-                "sbu8",
-                vec![
-                    ParsingInstruction::Bit {
-                        name: String::from("s"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 5,
-                        value: 0x5,
-                    },
-                    ParsingInstruction::Unsigned {
-                        size: 8,
-                        name: String::from("cst"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 2,
-                        value: 0b11,
-                    },
-                ],
-            ),
-            (
-                "scs10",
-                vec![
-                    ParsingInstruction::Bit {
-                        name: String::from("s"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 5,
-                        value: 0xD,
-                    },
-                    ParsingInstruction::Signed {
-                        size: 10,
-                        name: String::from("cst"),
-                    },
-                ],
-            ),
-            (
-                "sbs7c",
-                vec![
-                    ParsingInstruction::Bit {
-                        name: String::from("s"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 3,
-                        value: 0x5,
-                    },
-                    ParsingInstruction::Bit {
-                        name: String::from("z"),
-                    },
-                    ParsingInstruction::Match { size: 1, value: 1 },
-                    ParsingInstruction::Signed {
-                        size: 7,
-                        name: String::from("cst"),
-                    },
-                    ParsingInstruction::Unsigned {
-                        size: 3,
-                        name: String::from("nop"),
-                    },
-                ],
-            ),
-            (
-                "sbu8c",
-                vec![
-                    ParsingInstruction::Bit {
-                        name: String::from("s"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 3,
-                        value: 0x5,
-                    },
-                    ParsingInstruction::Bit {
-                        name: String::from("z"),
-                    },
-                    ParsingInstruction::Match { size: 1, value: 1 },
-                    ParsingInstruction::Unsigned {
-                        size: 8,
-                        name: String::from("cst"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 2,
-                        value: 0b11,
-                    },
-                ],
-            ),
-            (
-                "sx1b",
-                vec![
-                    ParsingInstruction::Bit {
-                        name: String::from("s"),
-                    },
-                    ParsingInstruction::Match {
-                        size: 6,
-                        value: 0x37,
-                    },
-                    ParsingInstruction::Unsigned {
-                        size: 4,
-                        name: String::from("src"),
-                    },
-                    ParsingInstruction::Match { size: 2, value: 0 },
-                    ParsingInstruction::Unsigned {
-                        size: 3,
-                        name: String::from("nop"),
-                    },
-                ],
-            ),
+        let formats: [&[ParsingInstruction]; 6] = [
+            &SBS7_FORMAT,
+            &SBU8_FORMAT,
+            &SCS10_FORMAT,
+            &SBS7C_FORMAT,
+            &SBU8C_FORMAT,
+            &SX1B_FORMAT,
         ];
 
-        for (name, format) in formats {
-            let Ok(parsed_variables) = parse(input.opcode, format.as_slice()) else {
+        for format in formats {
+            let Ok(parsed_variables) = parse(input.opcode, format) else {
                 continue;
             };
-            let side = ParsedVariable::try_get(&parsed_variables, "s")?.get_bool()?;
+            let side = parsed_variables.try_get_bool(FormatSymbol::Side)?;
             let branch_using = {
-                if name == "sx1b" {
-                    let Ok(src) = ParsedVariable::try_get(&parsed_variables, "src") else {
-                        continue;
-                    };
-                    BranchUsing::Register(Register::B(src.get_u8()?))
+                if format == &SX1B_FORMAT {
+                    BranchUsing::Register(Register::B(
+                        parsed_variables.try_get_u8(FormatSymbol::Source2)?,
+                    ))
+                } else if format == &SCS10_FORMAT {
+                    BranchUsing::Displacement(
+                        parsed_variables.try_get_i32(FormatSymbol::SignedConstant(10))? << 2,
+                    )
+                } else if format == &SBS7_FORMAT || format == &SBS7C_FORMAT {
+                    BranchUsing::Displacement(
+                        parsed_variables.try_get_i32(FormatSymbol::SignedConstant(7))? << 1,
+                    )
+                } else if format == &SBU8_FORMAT || format == &SBU8C_FORMAT {
+                    BranchUsing::Displacement(
+                        (parsed_variables.try_get_u32(FormatSymbol::UnsignedConstant(8))? << 1)
+                            as i32,
+                    )
                 } else {
-                    let Ok(cst) = ParsedVariable::try_get(&parsed_variables, "cst") else {
-                        continue;
-                    };
-                    BranchUsing::Displacement(if name == "sbu8" || name == "sbu8c" {
-                        (cst.get_u8()? as i32) << 1
-                    } else {
-                        cst.get_i32()? << { if name == "scs10" { 2 } else { 1 } }
-                    })
+                    break;
                 }
             };
             let nop_count = {
-                if name == "sbs7" || name == "sbs7c" || name == "sx1b" {
-                    let Ok(nop) = ParsedVariable::try_get(&parsed_variables, "nop") else {
+                if format == &SBS7_FORMAT || format == &SBS7C_FORMAT || format == &SX1B_FORMAT {
+                    let nop = parsed_variables.try_get_u8(FormatSymbol::N3)?;
+                    if nop > 5 {
                         continue;
-                    };
-                    min(nop.get_u8()?, 5)
+                    }
+                    nop
                 } else {
                     5
                 }
             };
             let conditional_operation = {
-                if name == "scs10" {
+                if format == &SCS10_FORMAT {
                     Some(ConditionalOperation::ReservedLow)
-                } else if name == "sbs7c" || name == "sbu8c" {
-                    let z = ParsedVariable::try_get(&parsed_variables, "z")?.get_bool()?;
-                    if z {
+                } else if format == &SBS7C_FORMAT || format == &SBU8C_FORMAT {
+                    if parsed_variables.try_get_bool(FormatSymbol::Zero)? {
                         Some(ConditionalOperation::Zero(Register::from(0, side)))
                     } else {
                         Some(ConditionalOperation::NonZero(Register::from(0, side)))
