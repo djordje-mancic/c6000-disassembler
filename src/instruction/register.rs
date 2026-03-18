@@ -40,11 +40,7 @@ impl Register {
     }
 
     pub fn to_side(&self, side: bool) -> Self {
-        if self.side() == side {
-            *self
-        } else {
-            !*self
-        }
+        if self.side() == side { *self } else { !*self }
     }
 }
 
