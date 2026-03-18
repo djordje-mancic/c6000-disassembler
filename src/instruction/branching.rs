@@ -5,9 +5,9 @@ use crate::instruction::{
     formats::{
         FormatSymbol,
         s_unit::{
-            BRANCH_DISPLACEMENT_FORMAT, BRANCH_DISPLACEMENT_NOP_FORMAT, BRANCH_POINTER_FORMAT,
-            BRANCH_REGISTER_FORMAT, BRANCH_REGISTER_NOP_FORMAT, SBS7_FORMAT, SBS7C_FORMAT,
-            SBU8_FORMAT, SBU8C_FORMAT, SCS10_FORMAT, SX1B_FORMAT,
+            BDEC_BPOS_POINTER_FORMAT, BRANCH_DISPLACEMENT_FORMAT, BRANCH_DISPLACEMENT_NOP_FORMAT,
+            BRANCH_POINTER_FORMAT, BRANCH_REGISTER_FORMAT, BRANCH_REGISTER_NOP_FORMAT, SBS7_FORMAT,
+            SBS7C_FORMAT, SBU8_FORMAT, SBU8C_FORMAT, SCS10_FORMAT, SX1B_FORMAT,
         },
     },
     parser::{ParsingInstruction, parse},
@@ -20,12 +20,18 @@ pub enum BranchUsing {
     Pointer(ControlRegister),
 }
 
+pub enum AdditionalOperation {
+    Predication(Register),
+    PredicationAndDecrement(Register),
+}
+
 pub struct BranchInstruction {
     instruction_data: InstructionData,
     pub branch_using: BranchUsing,
     pub side: bool,
     pce1_address: u32,
     pub nop_count: u8,
+    pub additional_operation: Option<AdditionalOperation>,
 }
 
 impl BranchInstruction {
@@ -52,12 +58,13 @@ impl BranchInstruction {
 
 impl C6000Instruction for BranchInstruction {
     fn new(input: &super::InstructionInput) -> std::io::Result<Self> {
-        let formats: [&[ParsingInstruction]; 5] = [
+        let formats: [&[ParsingInstruction]; 6] = [
             &BRANCH_DISPLACEMENT_FORMAT,
             &BRANCH_REGISTER_FORMAT,
             &BRANCH_POINTER_FORMAT,
             &BRANCH_DISPLACEMENT_NOP_FORMAT,
             &BRANCH_REGISTER_NOP_FORMAT,
+            &BDEC_BPOS_POINTER_FORMAT,
         ];
         for format in formats {
             let Ok(parsed_variables) = parse(input.opcode, format) else {
@@ -83,6 +90,20 @@ impl C6000Instruction for BranchInstruction {
                     5
                 } else {
                     0
+                }
+            };
+            let additional_operation = {
+                if format == &BDEC_BPOS_POINTER_FORMAT {
+                    let dst = parsed_variables
+                        .try_get_register(FormatSymbol::Destination)?
+                        .to_side(side);
+                    if parsed_variables.try_get_bool(FormatSymbol::IsBDec)? {
+                        Some(AdditionalOperation::PredicationAndDecrement(dst))
+                    } else {
+                        Some(AdditionalOperation::Predication(dst))
+                    }
+                } else {
+                    None
                 }
             };
             let branch_using = {
@@ -111,6 +132,10 @@ impl C6000Instruction for BranchInstruction {
                         0b111 => BranchUsing::Pointer(ControlRegister::NRP),
                         _ => continue,
                     }
+                } else if format == &BDEC_BPOS_POINTER_FORMAT {
+                    BranchUsing::Displacement(
+                        parsed_variables.try_get_i32(FormatSymbol::Source)? << 2,
+                    )
                 } else {
                     continue;
                 }
@@ -120,6 +145,7 @@ impl C6000Instruction for BranchInstruction {
                 branch_using,
                 pce1_address: input.pce1_address,
                 nop_count,
+                additional_operation,
                 instruction_data: InstructionData {
                     opcode: input.opcode,
                     compact: false,
@@ -207,6 +233,7 @@ impl C6000Instruction for BranchInstruction {
                 side,
                 pce1_address: input.pce1_address,
                 nop_count,
+                additional_operation: None,
             });
         }
 
@@ -224,6 +251,11 @@ impl C6000Instruction for BranchInstruction {
         } else {
             if self.nop_count > 0 {
                 String::from("BNOP")
+            } else if let Some(operation) = &self.additional_operation {
+                match operation {
+                    AdditionalOperation::Predication(_) => String::from("BPOS"),
+                    AdditionalOperation::PredicationAndDecrement(_) => String::from("BDEC"),
+                }
             } else {
                 String::from("B")
             }
@@ -251,8 +283,20 @@ impl C6000Instruction for BranchInstruction {
                         .map_err(|e| format!("ERROR {e}"))
                         .unwrap_err();
                 };
+                let predication_string = {
+                    if let Some(operation) = &self.additional_operation {
+                        match operation {
+                            AdditionalOperation::Predication(register)
+                            | AdditionalOperation::PredicationAndDecrement(register) => {
+                                format!(", {register}")
+                            }
+                        }
+                    } else {
+                        String::new()
+                    }
+                };
                 format!(
-                    "0x{branch_address:08X} (PCE1{}0x{displacement_abs:08X})",
+                    "0x{branch_address:08X} (PCE1{}0x{displacement_abs:08X}){predication_string}",
                     if displacement.is_positive() { "+" } else { "-" }
                 )
             }
