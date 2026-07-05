@@ -2,7 +2,7 @@
 name = "c6000-disassembler"
 description = "Disassembler for the TMS320C6000 series of Digital Signal Processors"
 repository = "https://github.com/djordje-mancic/c6000-disassembler"
-license = "MIT"
+license = "GPL-3.0-or-later"
 readme = "README.md"
 version = "0.2.0"
 edition = "2024"
